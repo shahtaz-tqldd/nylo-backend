@@ -1,0 +1,69 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+env/
+*.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Django-related files
+*.sqlite3
+db.sqlite3
+db.sqlite3-journal
+*.log
+media/
+staticfiles/
+
+# Ignore local settings and environment variables
+.env
+*.env
+config/settings/local.py
+config/settings/dev.py
+
+# Pytest and Coverage reports
+htmlcov/
+.coverage
+*.cover
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore IDE/editor settings
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Ignore Celery beat schedule file
+celerybeat-schedule
+
+# Ignore Django migrations
+*/migrations/*.py
+*/migrations/*.pyc
+!*/migrations/__init__.py
+
+# Ignore compiled and cached files
+*.mo
+*.pot
+
+# Ignore Docker-related files
+docker-compose.override.yml
+
+# Ignore security-related files
+*.pem
+*.crt
+*.key
+
+# Ignore database dumps
+*.sql
+*.dump
