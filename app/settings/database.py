@@ -1,16 +1,13 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from app.settings.env import env, env_bool, env_int
 
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
-        "PORT": int(os.getenv("DB_PORT")),
-        "OPTIONS": {"sslmode": "require"},
+        "NAME": env("DB_NAME", "nylo_db"),
+        "USER": env("DB_USER", "nylo_db_owner"),
+        "PASSWORD": env("DB_PASSWORD", "nylo_db_password"),
+        "HOST": env("DB_HOST", "postgres"),
+        "PORT": env_int("DB_PORT", 5432),
+        "OPTIONS": {"sslmode": "require"} if env_bool("DB_SSL_REQUIRE", False) else {},
     }
 }

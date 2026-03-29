@@ -3,11 +3,13 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
 
 # Virtual environment
 venv/
 env/
 *.venv
+.venv/
 pip-log.txt
 pip-delete-this-directory.txt
 
@@ -22,12 +24,14 @@ staticfiles/
 # Ignore local settings and environment variables
 .env
 *.env
+.env.*
 config/settings/local.py
 config/settings/dev.py
 
 # Pytest and Coverage reports
 htmlcov/
 .coverage
+.coverage.*
 *.cover
 .cache
 nosetests.xml
@@ -58,6 +62,8 @@ celerybeat-schedule
 
 # Ignore Docker-related files
 docker-compose.override.yml
+.docker/
+docker/.env
 
 # Ignore security-related files
 *.pem
@@ -67,3 +73,7 @@ docker-compose.override.yml
 # Ignore database dumps
 *.sql
 *.dump
+
+# OS files
+.DS_Store
+Thumbs.db
