@@ -10,11 +10,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libpq-dev netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash appuser
+
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-RUN chmod +x docker/entrypoint.sh docker/startapp.dev.sh docker/startapp.prod.sh
+RUN chmod +x docker/entrypoint.sh docker/startapp.dev.sh docker/startapp.prod.sh \
+    && chown -R appuser:appuser /app
+
+USER appuser
 
 ENTRYPOINT ["./docker/entrypoint.sh"]

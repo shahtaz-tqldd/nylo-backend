@@ -51,10 +51,8 @@ coverage.xml
 # Ignore Celery beat schedule file
 celerybeat-schedule
 
-# Ignore Django migrations
-*/migrations/*.py
-*/migrations/*.pyc
-!*/migrations/__init__.py
+# Django migration cache
+*/migrations/__pycache__/
 
 # Ignore compiled and cached files
 *.mo

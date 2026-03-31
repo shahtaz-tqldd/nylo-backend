@@ -1,5 +1,4 @@
 DJANGO_BASE_APPS = [
-    # "user",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -10,6 +9,7 @@ DJANGO_BASE_APPS = [
 
 THIRD_PARTY_APPS = [
     "rest_framework",
+    "corsheaders",
     "django_celery_results",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -18,8 +18,9 @@ THIRD_PARTY_APPS = [
 
 
 MODULER_APPS = [
+    "auth.apps.AuthConfig",
+    "products",
     # "shop",
-    # "products",
     # "orders",
     # "coupons",
     # "campaigns"

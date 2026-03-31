@@ -1,5 +1,6 @@
 BASE_MIDDLEWARES = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -14,6 +15,6 @@ MIDDLEWARE = BASE_MIDDLEWARES + CUSTOM_MIDDLEWARES
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "app.authentication.SafeJWTAuthentication",
     ),
 }

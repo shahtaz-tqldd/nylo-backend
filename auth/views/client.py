@@ -1,28 +1,65 @@
 from rest_framework import status
-from rest_framework.response import Response
+from rest_framework.generics import CreateAPIView, GenericAPIView
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from app.utils.response import APIResponse
+from auth.serializers import (
+    LoginSerializer, 
+    RegisterSerializer, 
+    UserSerializer
+)
 
 
-class PlaceholderAPIView(APIView):
-    message = "Endpoint not implemented yet."
+class CreateNewUserView(CreateAPIView):
+    serializer_class = RegisterSerializer
 
-    def get(self, request, *args, **kwargs):
-        return Response({"detail": self.message}, status=status.HTTP_501_NOT_IMPLEMENTED)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return APIResponse.success(
+            data=UserSerializer(user).data,
+            message="User created successfully.",
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LoginView(GenericAPIView):
+    serializer_class = LoginSerializer
 
     def post(self, request, *args, **kwargs):
-        return Response({"detail": self.message}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        return APIResponse.success(
+            data=serializer.validated_data,
+            message="User logged in.",
+        )
+
+
+class RefreshTokenView(TokenRefreshView):
+    pass
+
+
+class UserDetailsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        return APIResponse.success(data=UserSerializer(request.user).data)
+
+
+class UserDetailsUpdateView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
 
     def patch(self, request, *args, **kwargs):
-        return Response({"detail": self.message}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        serializer = self.get_serializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return APIResponse.success(
+            data=serializer.data,
+            message="User updated successfully.",
+        )
+    
 
-
-class GetUserListView(PlaceholderAPIView):
-    message = "Admin user list is not implemented yet."
-
-
-class UserDetailsForAdminView(PlaceholderAPIView):
-    message = "Admin user details are not implemented yet."
-
-
-class UserActivationView(PlaceholderAPIView):
-    message = "User activation is not implemented yet."
