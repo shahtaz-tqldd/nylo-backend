@@ -14,10 +14,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - ../app:/app/app
-      - ../auth:/app/auth
-      - ../manage.py:/app/manage.py
-      - ../requirements.txt:/app/requirements.txt
+      - ..:/app
     ports:
       - "${WSGI_PORT:-8000}:8000"
     depends_on:
@@ -41,11 +38,9 @@ services:
       DB_PORT: ${DB_PORT:-5432}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      WATCHFILES_FORCE_POLLING: "true"
     volumes:
-      - ../app:/app/app
-      - ../auth:/app/auth
-      - ../manage.py:/app/manage.py
-      - ../requirements.txt:/app/requirements.txt
+      - ..:/app
     ports:
       - "${ASGI_PORT:-8001}:8001"
     depends_on:
@@ -70,10 +65,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - ../app:/app/app
-      - ../auth:/app/auth
-      - ../manage.py:/app/manage.py
-      - ../requirements.txt:/app/requirements.txt
+      - ..:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,10 +88,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - ../app:/app/app
-      - ../auth:/app/auth
-      - ../manage.py:/app/manage.py
-      - ../requirements.txt:/app/requirements.txt
+      - ..:/app
     depends_on:
       postgres:
         condition: service_healthy
