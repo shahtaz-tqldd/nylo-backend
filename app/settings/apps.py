@@ -20,8 +20,8 @@ THIRD_PARTY_APPS = [
 MODULER_APPS = [
     "auth.apps.AuthConfig",
     "products",
+    "orders",
     # "shop",
-    # "orders",
     # "coupons",
     # "campaigns"
 ]

@@ -1,31 +1,27 @@
 import json
 
-from django.db.models import Max, Prefetch, Q
+from django.db.models import IntegerField, Max, Prefetch, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from rest_framework import generics, pagination, serializers, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.views import APIView
 
+from app.base.pagination import CustomPagination
 from app.utils.cloudinary import delete_image
 from app.utils.response import APIResponse
 from auth.permissions import IsAdmin
-from products.models import Category, Collection, CollectionItem, Color, GenderChoice, Product, Size
-from products.v1.serializers import (
+from products.models import Category, Collection, CollectionItem, Color, Product, Size
+from products.v1.admin.serializers import (
+    AdminProductListSerializer,
     CategorySerializer,
     CollectionProductBulkAddSerializer,
     CollectionSerializer,
     ColorSerializer,
     ProductDetailSerializer,
     ProductListSerializer,
-    ProductSettingsSerializer,
     ProductUpsertSerializer,
     SizeSerializer,
 )
-
-
-class ProductPagination(pagination.PageNumberPagination):
-    page_size = 10
-    page_size_query_param = "page_size"
-    max_page_size = 100
 
 
 class AdminResponseMixin:
@@ -39,11 +35,12 @@ class AdminResponseMixin:
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page if page is not None else queryset, many=True)
+        meta = None
         if page is not None:
             meta = {
                 "total": self.paginator.page.paginator.count,
                 "page": self.paginator.page.number,
-                "page_size": self.get_page_size(request),
+                "page_size": self.paginator.page.paginator.per_page,
             }
         return APIResponse.success(data=serializer.data, meta=meta, message=self.success_list_message)
 
@@ -133,10 +130,43 @@ class ColorDetailAPIView(AdminModelDetailAPIView):
 
 
 class CollectionListCreateAPIView(AdminModelListCreateAPIView):
-    queryset = Collection.objects.all().order_by("title")
     serializer_class = CollectionSerializer
+    pagination_class = CustomPagination
     success_list_message = "Collections fetched successfully."
     success_create_message = "Collection created successfully."
+
+    def get_queryset(self):
+        queryset = Collection.objects.all().order_by("title")
+        text = (self.request.query_params.get("text") or self.request.query_params.get("search") or "").strip()
+        if text:
+            queryset = queryset.filter(
+                Q(title__icontains=text)
+                | Q(subtitle__icontains=text)
+                | Q(type__icontains=text)
+                | Q(description__icontains=text)
+                | Q(slug__icontains=text)
+            )
+        return queryset
+
+
+class CollectionListAPIView(AdminResponseMixin, generics.ListAPIView):
+    permission_classes = [IsAdmin]
+    serializer_class = CollectionSerializer
+    pagination_class = CustomPagination
+    success_list_message = "Collections fetched successfully."
+
+    def get_queryset(self):
+        queryset = Collection.objects.all().order_by("title")
+        text = (self.request.query_params.get("text") or self.request.query_params.get("search") or "").strip()
+        if text:
+            queryset = queryset.filter(
+                Q(title__icontains=text)
+                | Q(subtitle__icontains=text)
+                | Q(type__icontains=text)
+                | Q(description__icontains=text)
+                | Q(slug__icontains=text)
+            )
+        return queryset
 
 
 class CollectionDetailAPIView(AdminModelDetailAPIView):
@@ -144,21 +174,6 @@ class CollectionDetailAPIView(AdminModelDetailAPIView):
     serializer_class = CollectionSerializer
     success_update_message = "Collection updated successfully."
     success_delete_message = "Collection deleted successfully."
-
-
-class ProductSettingsAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        data = {
-            "categories": Category.objects.all().order_by("name"),
-            "sizes": Size.objects.all().order_by("order", "name"),
-            "colors": Color.objects.all().order_by("name"),
-            "collections": Collection.objects.all().order_by("title"),
-            "genders": [{"value": value, "label": label} for value, label in GenderChoice.choices],
-        }
-        serializer = ProductSettingsSerializer(data)
-        return APIResponse.success(data=serializer.data, message="Product settings fetched successfully.")
 
 
 class CollectionBulkAddProductsAPIView(APIView):
@@ -201,7 +216,7 @@ class CollectionBulkAddProductsAPIView(APIView):
 
 
 class ProductQuerysetMixin:
-    pagination_class = ProductPagination
+    pagination_class = CustomPagination
 
     def get_base_queryset(self):
         return (
@@ -262,7 +277,7 @@ class ProductQuerysetMixin:
 
 class AdminProductListCreateAPIView(ProductQuerysetMixin, generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, IsAdmin]
-    pagination_class = ProductPagination
+    pagination_class = CustomPagination
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -351,3 +366,86 @@ class AdminProductDetailAPIView(ProductQuerysetMixin, generics.RetrieveUpdateDes
             except json.JSONDecodeError as exc:
                 raise serializers.ValidationError({"product_data": "Invalid JSON payload."}) from exc
         return self.request.data
+
+
+class AdminProductListAPIView(generics.ListAPIView):
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminProductListSerializer
+    pagination_class = CustomPagination
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+
+        meta = None
+        if page is not None:
+            meta = {
+                "total": self.paginator.page.paginator.count,
+                "page": self.paginator.page.number,
+                "page_size": self.paginator.page.paginator.per_page,
+            }
+
+        return APIResponse.success(
+            data=serializer.data,
+            meta=meta,
+            message="Products fetched successfully.",
+        )
+
+    def get_queryset(self):
+        queryset = (
+            Product.objects.select_related("category")
+            .prefetch_related("variants", "variants__size", "variants__color")
+            .annotate(
+                total_stock=Coalesce(
+                    Sum("variants__stock"),
+                    Value(0),
+                    output_field=IntegerField(),
+                ),
+                total_orders_placed=Coalesce(
+                    Sum("order_items__quantity"),
+                    Value(0),
+                    output_field=IntegerField(),
+                ),
+            )
+            .order_by("-created_at")
+            .distinct()
+        )
+
+        params = self.request.query_params
+
+        category_ids = params.getlist("category")
+        genders = params.getlist("gender")
+        size_ids = params.getlist("size")
+        color_ids = params.getlist("color")
+        is_active = params.get("is_active")
+        search = params.get("search")
+
+        if category_ids:
+            queryset = queryset.filter(category_id__in=category_ids)
+
+        if genders:
+            queryset = queryset.filter(gender__in=genders)
+
+        if size_ids:
+            queryset = queryset.filter(variants__size_id__in=size_ids)
+
+        if color_ids:
+            queryset = queryset.filter(variants__color_id__in=color_ids)
+
+        if is_active is not None:
+            if is_active.lower() == "true":
+                queryset = queryset.filter(is_active=True)
+            elif is_active.lower() == "false":
+                queryset = queryset.filter(is_active=False)
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(sku__icontains=search)
+                | Q(slug__icontains=search)
+                | Q(brand__icontains=search)
+                | Q(category__name__icontains=search)
+            )
+
+        return queryset.distinct()

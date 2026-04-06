@@ -1,19 +1,30 @@
 from django.db.models import Prefetch, Q
-from rest_framework import generics, pagination
 
+from rest_framework import generics
+from rest_framework.permissions import AllowAny
+
+from app.base.pagination import CustomPagination
 from app.utils.response import APIResponse
-from products.models import CollectionItem, Product
-from products.v1.serializers import ProductDetailSerializer, PublicProductListSerializer
-
-
-class ProductPagination(pagination.PageNumberPagination):
-    page_size = 10
-    page_size_query_param = "page_size"
-    max_page_size = 100
+from products.models import (
+    CollectionItem, 
+    Product, 
+    Category, 
+    Collection, 
+    CollectionItem, 
+    Color, 
+    Product,
+    Size, 
+    GenderChoice
+)
+from products.v1.client.serializers import (
+    ProductDetailSerializer, 
+    PublicProductListSerializer, 
+    ProductSettingsSerializer
+)
 
 
 class ProductQuerysetMixin:
-    pagination_class = ProductPagination
+    pagination_class = CustomPagination
 
     def get_base_queryset(self):
         return (
@@ -28,7 +39,7 @@ class ProductQuerysetMixin:
     def apply_filters(self, queryset):
         params = self.request.query_params
 
-        text = params.get("text")
+        text = params.get("search")
         if text:
             queryset = queryset.filter(
                 Q(title__icontains=text)
@@ -74,7 +85,7 @@ class ProductQuerysetMixin:
 
 class ProductListAPIView(ProductQuerysetMixin, generics.ListAPIView):
     serializer_class = PublicProductListSerializer
-    pagination_class = ProductPagination
+    pagination_class = CustomPagination
 
     def get_queryset(self):
         return self.apply_filters(self.get_base_queryset())
@@ -89,6 +100,7 @@ class ProductListAPIView(ProductQuerysetMixin, generics.ListAPIView):
             "page": self.paginator.page.number,
             "page_size": 10,
         }
+
         return APIResponse.success(
             meta=meta, 
             data=serializer.data, 
@@ -105,4 +117,27 @@ class ProductDetailAPIView(ProductQuerysetMixin, generics.RetrieveAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(self.get_object())
-        return APIResponse.success(data=serializer.data, message="Product fetched successfully.")
+        return APIResponse.success(
+            data=serializer.data, 
+            message="Product fetched successfully."
+        )
+
+
+class ProductSettingsAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        data = {
+            "categories": Category.objects.all().order_by("name"),
+            "sizes": Size.objects.all().order_by("order", "name"),
+            "colors": Color.objects.all().order_by("name"),
+            "collections": Collection.objects.all().order_by("title"),
+            "genders": [{"value": value, "label": label} for value, label in GenderChoice.choices],
+        }
+        serializer = ProductSettingsSerializer(data)
+        return APIResponse.success(
+            data=serializer.data, 
+            message="Product settings fetched successfully."
+        )
+
+

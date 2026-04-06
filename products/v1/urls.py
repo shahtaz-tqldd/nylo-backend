@@ -1,11 +1,11 @@
 from django.urls import include, path
 
-from products.v1.views import admin, client
-
+from products.v1.admin import views as admin
+from products.v1.client import views as client
 
 client_urls = [
     path("list/", client.ProductListAPIView.as_view(), name="product-list"),
-    path("settings/", admin.ProductSettingsAPIView.as_view(), name="product-settings"),
+    path("settings/", client.ProductSettingsAPIView.as_view(), name="product-settings"),
     path("<uuid:id>/", client.ProductDetailAPIView.as_view(), name="product-detail"),
 ]
 
@@ -29,6 +29,7 @@ color_urls = [
 
 
 collection_urls = [
+    path("list/", admin.CollectionListAPIView.as_view(), name="collection-list"),
     path("", admin.CollectionListCreateAPIView.as_view(), name="collection-list-create"),
     path("<uuid:id>/", admin.CollectionDetailAPIView.as_view(), name="collection-detail"),
     path(
@@ -40,16 +41,20 @@ collection_urls = [
 
 
 product_admin_urls = [
-    path("", admin.AdminProductListCreateAPIView.as_view(), name="admin-product-list-create"),
+    path("list/", admin.AdminProductListAPIView.as_view(), name="admin-product-list"),
     path("<uuid:id>/", admin.AdminProductDetailAPIView.as_view(), name="admin-product-detail"),
+    path("", admin.AdminProductListCreateAPIView.as_view(), name="admin-product-list-create"),
 ]
 
+admin_urls = [
+    path("", include((product_admin_urls, "product_admin"))),
+    path("category/", include((category_urls, "category_admin"))),
+    path("size/", include((size_urls, "size_admin"))),
+    path("color/", include((color_urls, "color_admin"))),
+    path("collection/", include((collection_urls, "collection_admin"))),
+]
 
 urlpatterns = [
     *client_urls,
-    path("admin/category/", include((category_urls, "category_admin"))),
-    path("admin/size/", include((size_urls, "size_admin"))),
-    path("admin/color/", include((color_urls, "color_admin"))),
-    path("admin/collection/", include((collection_urls, "collection_admin"))),
-    path("admin/product/", include((product_admin_urls, "product_admin"))),
+    path("admin/", include((admin_urls))),
 ]

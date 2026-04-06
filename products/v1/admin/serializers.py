@@ -35,6 +35,8 @@ class ColorSerializer(serializers.ModelSerializer):
 
 
 class CollectionSerializer(serializers.ModelSerializer):
+    image = serializers.FileField(write_only=True, required=False, allow_null=True)
+
     class Meta:
         model = Collection
         fields = (
@@ -48,8 +50,49 @@ class CollectionSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
+            "image",
         )
-        read_only_fields = ("id", "slug", "created_at", "updated_at")
+        read_only_fields = ("id", "image_url", "slug", "created_at", "updated_at")
+
+    def create(self, validated_data):
+        image_file = validated_data.pop("image", None)
+        if image_file:
+            validated_data["image_url"] = self._upload_collection_image(
+                image_file=image_file,
+                title=validated_data.get("title"),
+            )
+        return Collection.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        image_file = validated_data.pop("image", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if image_file:
+            instance.image_url = self._upload_collection_image(
+                image_file=image_file,
+                title=validated_data.get("title", instance.title),
+                current_url=instance.image_url,
+            )
+
+        instance.save()
+        return instance
+
+    def _upload_collection_image(self, image_file, title, current_url=None):
+        if current_url:
+            delete_image(image_url=current_url)
+
+        upload = upload_image(
+            image_file,
+            folder=f"{settings.CLOUDINARY_FOLDER}/collections",
+            public_id=self._build_slug(title, "collection"),
+        )
+        return upload["url"]
+
+    def _build_slug(self, title, fallback):
+        slug = slugify(str(title or ""))
+        return slug or fallback
 
 
 class GenderOptionSerializer(serializers.Serializer):
@@ -517,3 +560,30 @@ class CollectionProductBulkAddSerializer(serializers.Serializer):
             raise serializers.ValidationError("One or more product_ids do not exist.")
         self.context["products"] = products
         return value
+
+
+class AdminProductListSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    total_stock = serializers.IntegerField(read_only=True)
+    total_orders_placed = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "sku",
+            "image_url",
+            "brand",
+            "category",
+            "category_name",
+            "gender",
+            "price",
+            "compare_price",
+            "is_active",
+            "total_stock",
+            "total_orders_placed",
+            "created_at",
+            "updated_at",
+        ]
