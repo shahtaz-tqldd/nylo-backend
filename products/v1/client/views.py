@@ -1,26 +1,42 @@
 from django.db.models import Prefetch, Q
 
-from rest_framework import generics
-from rest_framework.permissions import AllowAny
+from rest_framework import generics, status
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from app.base.pagination import CustomPagination
 from app.utils.response import APIResponse
-from products.models import (
-    CollectionItem, 
-    Product, 
-    Category, 
-    Collection, 
-    CollectionItem, 
-    Color, 
-    Product,
-    Size, 
-    GenderChoice
-)
+from products.models import Category, Collection, CollectionItem, Color, GenderChoice, Product, Size
 from products.v1.client.serializers import (
-    ProductDetailSerializer, 
-    PublicProductListSerializer, 
-    ProductSettingsSerializer
+    ProductDetailSerializer,
+    ProductSettingsSerializer,
+    PublicProductListSerializer,
 )
+
+
+class PublicResponseMixin:
+    permission_classes = [AllowAny]
+    lookup_field = "id"
+    success_list_message = "Products fetched successfully."
+    success_detail_message = "Product fetched successfully."
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+
+        meta = None
+        if page is not None:
+            meta = {
+                "total": self.paginator.page.paginator.count,
+                "page": self.paginator.page.number,
+                "page_size": self.paginator.page.paginator.per_page,
+            }
+
+        return APIResponse.success(data=serializer.data, meta=meta, message=self.success_list_message)
+
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object())
+        return APIResponse.success(data=serializer.data, message=self.success_detail_message)
 
 
 class ProductQuerysetMixin:
@@ -31,7 +47,11 @@ class ProductQuerysetMixin:
             Product.objects.select_related("category")
             .prefetch_related(
                 Prefetch("variants", to_attr="prefetched_variants"),
-                Prefetch("collectionitem_set", queryset=CollectionItem.objects.select_related("collection"), to_attr="prefetched_collection_items"),
+                Prefetch(
+                    "collectionitem_set",
+                    queryset=CollectionItem.objects.select_related("collection"),
+                    to_attr="prefetched_collection_items",
+                ),
             )
             .filter(is_active=True)
         )
@@ -39,7 +59,7 @@ class ProductQuerysetMixin:
     def apply_filters(self, queryset):
         params = self.request.query_params
 
-        text = params.get("search")
+        text = params.get("search") or params.get("text")
         if text:
             queryset = queryset.filter(
                 Q(title__icontains=text)
@@ -82,45 +102,30 @@ class ProductQuerysetMixin:
 
         return queryset.distinct().order_by("-created_at")
 
-
-class ProductListAPIView(ProductQuerysetMixin, generics.ListAPIView):
-    serializer_class = PublicProductListSerializer
-    pagination_class = CustomPagination
-
     def get_queryset(self):
         return self.apply_filters(self.get_base_queryset())
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(page, many=True)
-        
-        meta= {
-            "total": self.paginator.page.paginator.count,
-            "page": self.paginator.page.number,
-            "page_size": 10,
-        }
 
-        return APIResponse.success(
-            meta=meta, 
-            data=serializer.data, 
-            message="Products fetched successfully."
-        )
+class ProductListAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.ListAPIView):
+    serializer_class = PublicProductListSerializer
 
 
-class ProductDetailAPIView(ProductQuerysetMixin, generics.RetrieveAPIView):
+class CollectionListAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.ListAPIView):
+    serializer_class = PublicProductListSerializer
+
+    def get_queryset(self):
+        collection_id = self.request.query_params.get("collection_id")
+        queryset = self.get_base_queryset()
+        if collection_id:
+            queryset = queryset.filter(collectionitem__collection_id=collection_id)
+        return self.apply_filters(queryset)
+
+
+class ProductDetailsAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.RetrieveAPIView):
     serializer_class = ProductDetailSerializer
-    lookup_field = "id"
 
     def get_queryset(self):
         return self.get_base_queryset()
-
-    def retrieve(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_object())
-        return APIResponse.success(
-            data=serializer.data, 
-            message="Product fetched successfully."
-        )
 
 
 class ProductSettingsAPIView(generics.GenericAPIView):
@@ -135,9 +140,40 @@ class ProductSettingsAPIView(generics.GenericAPIView):
             "genders": [{"value": value, "label": label} for value, label in GenderChoice.choices],
         }
         serializer = ProductSettingsSerializer(data)
-        return APIResponse.success(
-            data=serializer.data, 
-            message="Product settings fetched successfully."
-        )
+        return APIResponse.success(data=serializer.data, message="Product settings fetched successfully.")
 
 
+class AuthenticatedUserAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    unavailable_message = "This endpoint is not available yet."
+
+    def not_available(self):
+        return APIResponse.error(message=self.unavailable_message, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+
+class AddToCartAPIView(AuthenticatedUserAPIView):
+    unavailable_message = "Cart functionality is not implemented yet."
+
+    def post(self, request, *args, **kwargs):
+        return self.not_available()
+
+
+class UserCartListAPIView(AuthenticatedUserAPIView):
+    unavailable_message = "Cart functionality is not implemented yet."
+
+    def get(self, request, *args, **kwargs):
+        return self.not_available()
+
+
+class AddToFavouriteAPIView(AuthenticatedUserAPIView):
+    unavailable_message = "Favourite functionality is not implemented yet."
+
+    def post(self, request, *args, **kwargs):
+        return self.not_available()
+
+
+class FavouriteListAPIView(AuthenticatedUserAPIView):
+    unavailable_message = "Favourite functionality is not implemented yet."
+
+    def get(self, request, *args, **kwargs):
+        return self.not_available()

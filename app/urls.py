@@ -3,10 +3,15 @@ from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
 
+v1_urls = [
+    path("auth/", include("auth.urls")),
+    path("products/", include("products.v1.client.urls")),
+    path("admin/products/", include("products.v1.admin.urls")),
+]
+
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/v1/auth/", include("auth.urls")),
-    path("api/v1/products/", include("products.v1.urls")),
+    path("api/v1/", include(v1_urls)),
 ]
 
 

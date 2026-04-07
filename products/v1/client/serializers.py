@@ -20,7 +20,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class SizeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Size
-        fields = ("id", "name")
+        fields = ("id", "name", "order")
 
 
 class ColorSerializer(serializers.ModelSerializer):
@@ -197,7 +197,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class SizeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Size
-        fields = ("id", "name")
+        fields = ("id", "name", "order")
 
 
 class ColorSerializer(serializers.ModelSerializer):

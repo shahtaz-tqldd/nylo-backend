@@ -1,40 +1,48 @@
 import json
 
-from django.db.models import IntegerField, Max, Prefetch, Q, Sum, Value
-from django.db.models.functions import Coalesce
-from rest_framework import generics, pagination, serializers, status
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.views import APIView
+from django.db.models import Prefetch, Q
+from rest_framework import generics, serializers, status
+from rest_framework.permissions import IsAuthenticated
 
 from app.base.pagination import CustomPagination
 from app.utils.cloudinary import delete_image
 from app.utils.response import APIResponse
 from auth.permissions import IsAdmin
-from products.models import Category, Collection, CollectionItem, Color, Product, Size
+from products.models import Category, Collection, CollectionItem, Color, GenderChoice, Product, Size
 from products.v1.admin.serializers import (
-    AdminProductListSerializer,
     CategorySerializer,
-    CollectionProductBulkAddSerializer,
     CollectionSerializer,
     ColorSerializer,
     ProductDetailSerializer,
     ProductListSerializer,
+    ProductSettingsSerializer,
     ProductUpsertSerializer,
     SizeSerializer,
 )
 
 
 class AdminResponseMixin:
+    permission_classes = [IsAuthenticated, IsAdmin]
+    lookup_field = "id"
     success_list_message = "Items fetched successfully."
+    success_detail_message = "Item fetched successfully."
     success_create_message = "Item created successfully."
     success_update_message = "Item updated successfully."
     success_delete_message = "Item deleted successfully."
-    detail_serializer_class = None
+    output_serializer_class = None
+
+    def get_output_serializer_class(self):
+        return self.output_serializer_class or self.get_serializer_class()
+
+    def get_output_serializer(self, instance):
+        serializer_class = self.get_output_serializer_class()
+        return serializer_class(instance, context=self.get_serializer_context())
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page if page is not None else queryset, many=True)
+
         meta = None
         if page is not None:
             meta = {
@@ -42,12 +50,17 @@ class AdminResponseMixin:
                 "page": self.paginator.page.number,
                 "page_size": self.paginator.page.paginator.per_page,
             }
+
         return APIResponse.success(data=serializer.data, meta=meta, message=self.success_list_message)
 
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_output_serializer(self.get_object())
+        return APIResponse.success(data=serializer.data, message=self.success_detail_message)
+
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=self.get_input_data())
         serializer.is_valid(raise_exception=True)
-        instance = serializer.save(created_by=request.user, updated_by=request.user)
+        instance = self.perform_create(serializer)
         output = self.get_output_serializer(instance)
         return APIResponse.success(
             data=output.data,
@@ -55,164 +68,145 @@ class AdminResponseMixin:
             status=status.HTTP_201_CREATED,
         )
 
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_output_serializer(instance)
-        return APIResponse.success(data=serializer.data, message="Item fetched successfully.")
-
     def partial_update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(self.get_object(), data=self.get_input_data(), partial=True)
         serializer.is_valid(raise_exception=True)
-        instance = serializer.save(updated_by=request.user)
+        instance = self.perform_update(serializer)
         output = self.get_output_serializer(instance)
         return APIResponse.success(data=output.data, message=self.success_update_message)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.delete()
+        self.perform_destroy(instance)
         return APIResponse.success(message=self.success_delete_message)
 
-    def get_output_serializer(self, instance):
-        serializer_class = self.detail_serializer_class or self.get_serializer_class()
-        return serializer_class(instance, context=self.get_serializer_context())
+    def get_input_data(self):
+        return self.request.data
+
+    def perform_create(self, serializer):
+        return serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        return serializer.save(updated_by=self.request.user)
 
 
-class AdminModelListCreateAPIView(AdminResponseMixin, generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
+class AdminCreateAPIView(AdminResponseMixin, generics.CreateAPIView):
+    pass
 
 
-class AdminModelDetailAPIView(AdminResponseMixin, generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-    lookup_field = "id"
+class AdminListAPIView(AdminResponseMixin, generics.ListAPIView):
+    pass
 
 
-class CategoryListCreateAPIView(AdminModelListCreateAPIView):
-    queryset = Category.objects.all().order_by("name")
+class AdminRetrieveAPIView(AdminResponseMixin, generics.RetrieveAPIView):
+    pass
+
+
+class AdminUpdateAPIView(AdminResponseMixin, generics.UpdateAPIView):
+    pass
+
+
+class AdminDeleteAPIView(AdminResponseMixin, generics.DestroyAPIView):
+    pass
+
+
+class CategoryCreateAPIView(AdminCreateAPIView):
+    queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    success_list_message = "Categories fetched successfully."
     success_create_message = "Category created successfully."
 
 
-class CategoryDetailAPIView(AdminModelDetailAPIView):
+class CategoryUpdateAPIView(AdminUpdateAPIView):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     success_update_message = "Category updated successfully."
+
+
+class CategoryDeleteAPIView(AdminDeleteAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
     success_delete_message = "Category deleted successfully."
 
 
-class SizeListCreateAPIView(AdminModelListCreateAPIView):
-    queryset = Size.objects.all().order_by("order", "name")
+class SizeCreateAPIView(AdminCreateAPIView):
+    queryset = Size.objects.all()
     serializer_class = SizeSerializer
-    success_list_message = "Sizes fetched successfully."
     success_create_message = "Size created successfully."
 
 
-class SizeDetailAPIView(AdminModelDetailAPIView):
+class SizeUpdateAPIView(AdminUpdateAPIView):
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
     success_update_message = "Size updated successfully."
+
+
+class SizeDeleteAPIView(AdminDeleteAPIView):
+    queryset = Size.objects.all()
+    serializer_class = SizeSerializer
     success_delete_message = "Size deleted successfully."
 
 
-class ColorListCreateAPIView(AdminModelListCreateAPIView):
-    queryset = Color.objects.all().order_by("name")
+class ColorCreateAPIView(AdminCreateAPIView):
+    queryset = Color.objects.all()
     serializer_class = ColorSerializer
-    success_list_message = "Colors fetched successfully."
     success_create_message = "Color created successfully."
 
 
-class ColorDetailAPIView(AdminModelDetailAPIView):
+class ColorUpdateAPIView(AdminUpdateAPIView):
     queryset = Color.objects.all()
     serializer_class = ColorSerializer
     success_update_message = "Color updated successfully."
+
+
+class ColorDeleteAPIView(AdminDeleteAPIView):
+    queryset = Color.objects.all()
+    serializer_class = ColorSerializer
     success_delete_message = "Color deleted successfully."
 
 
-class CollectionListCreateAPIView(AdminModelListCreateAPIView):
-    serializer_class = CollectionSerializer
+class CollectionQuerysetMixin:
     pagination_class = CustomPagination
+
+    def get_queryset(self):
+        queryset = Collection.objects.all().order_by("title")
+        text = (self.request.query_params.get("text") or self.request.query_params.get("search") or "").strip()
+        if text:
+            queryset = queryset.filter(
+                Q(title__icontains=text)
+                | Q(subtitle__icontains=text)
+                | Q(type__icontains=text)
+                | Q(description__icontains=text)
+                | Q(slug__icontains=text)
+            )
+        return queryset
+
+
+class CollectionListAPIView(CollectionQuerysetMixin, AdminListAPIView):
+    serializer_class = CollectionSerializer
     success_list_message = "Collections fetched successfully."
+
+
+class CollectionDetailsAPIView(CollectionQuerysetMixin, AdminRetrieveAPIView):
+    serializer_class = CollectionSerializer
+    success_detail_message = "Collection fetched successfully."
+
+
+class CollectionCreateAPIView(AdminCreateAPIView):
+    queryset = Collection.objects.all()
+    serializer_class = CollectionSerializer
     success_create_message = "Collection created successfully."
 
-    def get_queryset(self):
-        queryset = Collection.objects.all().order_by("title")
-        text = (self.request.query_params.get("text") or self.request.query_params.get("search") or "").strip()
-        if text:
-            queryset = queryset.filter(
-                Q(title__icontains=text)
-                | Q(subtitle__icontains=text)
-                | Q(type__icontains=text)
-                | Q(description__icontains=text)
-                | Q(slug__icontains=text)
-            )
-        return queryset
 
-
-class CollectionListAPIView(AdminResponseMixin, generics.ListAPIView):
-    permission_classes = [IsAdmin]
-    serializer_class = CollectionSerializer
-    pagination_class = CustomPagination
-    success_list_message = "Collections fetched successfully."
-
-    def get_queryset(self):
-        queryset = Collection.objects.all().order_by("title")
-        text = (self.request.query_params.get("text") or self.request.query_params.get("search") or "").strip()
-        if text:
-            queryset = queryset.filter(
-                Q(title__icontains=text)
-                | Q(subtitle__icontains=text)
-                | Q(type__icontains=text)
-                | Q(description__icontains=text)
-                | Q(slug__icontains=text)
-            )
-        return queryset
-
-
-class CollectionDetailAPIView(AdminModelDetailAPIView):
+class CollectionUpdateAPIView(AdminUpdateAPIView):
     queryset = Collection.objects.all()
     serializer_class = CollectionSerializer
     success_update_message = "Collection updated successfully."
+
+
+class CollectionDeleteAPIView(AdminDeleteAPIView):
+    queryset = Collection.objects.all()
+    serializer_class = CollectionSerializer
     success_delete_message = "Collection deleted successfully."
-
-
-class CollectionBulkAddProductsAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, *args, **kwargs):
-        collection = generics.get_object_or_404(Collection, id=kwargs["id"])
-        serializer = CollectionProductBulkAddSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-
-        products = serializer.context["products"]
-        existing_ids = set(
-            CollectionItem.objects.filter(collection=collection, product_id__in=serializer.validated_data["product_ids"])
-            .values_list("product_id", flat=True)
-        )
-        next_order = (
-            CollectionItem.objects.filter(collection=collection).aggregate(max_order=Max("order"))["max_order"] or 0
-        )
-        items = []
-        for product in products:
-            if product.id in existing_ids:
-                continue
-            next_order += 1
-            items.append(
-                CollectionItem(
-                    collection=collection,
-                    product=product,
-                    order=next_order,
-                    created_by=request.user,
-                    updated_by=request.user,
-                )
-            )
-
-        CollectionItem.objects.bulk_create(items)
-        return APIResponse.success(
-            data={"created_count": len(items), "skipped_count": len(existing_ids)},
-            message="Products added to collection successfully.",
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class ProductQuerysetMixin:
@@ -223,15 +217,20 @@ class ProductQuerysetMixin:
             Product.objects.select_related("category")
             .prefetch_related(
                 Prefetch("variants", to_attr="prefetched_variants"),
-                Prefetch("collectionitem_set", queryset=CollectionItem.objects.select_related("collection"), to_attr="prefetched_collection_items"),
+                Prefetch(
+                    "collectionitem_set",
+                    queryset=CollectionItem.objects.select_related("collection"),
+                    to_attr="prefetched_collection_items",
+                ),
             )
             .all()
         )
 
-    def apply_filters(self, queryset):
+    def get_queryset(self):
+        queryset = self.get_base_queryset()
         params = self.request.query_params
 
-        text = params.get("text")
+        text = params.get("text") or params.get("search")
         if text:
             queryset = queryset.filter(
                 Q(title__icontains=text)
@@ -274,45 +273,7 @@ class ProductQuerysetMixin:
 
         return queryset.distinct().order_by("-created_at")
 
-
-class AdminProductListCreateAPIView(ProductQuerysetMixin, generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-    pagination_class = CustomPagination
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return ProductUpsertSerializer
-        return ProductListSerializer
-
-    def get_queryset(self):
-        return self.apply_filters(self.get_base_queryset())
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-        serializer = ProductListSerializer(page, many=True)
-        payload = {
-            "meta": {
-                "total": self.paginator.page.paginator.count,
-                "page": self.paginator.page.number,
-                "page_size": self.get_page_size(request),
-            },
-            "data": serializer.data,
-        }
-        return APIResponse.success(data=payload, message="Products fetched successfully.")
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=self._get_payload(), context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        product = serializer.save()
-        output = ProductDetailSerializer(self._refresh_product(product))
-        return APIResponse.success(
-            data=output.data,
-            message="Product created successfully.",
-            status=status.HTTP_201_CREATED,
-        )
-
-    def _get_payload(self):
+    def get_input_data(self):
         product_data = self.request.data.get("product_data")
         if product_data:
             try:
@@ -321,131 +282,68 @@ class AdminProductListCreateAPIView(ProductQuerysetMixin, generics.ListCreateAPI
                 raise serializers.ValidationError({"product_data": "Invalid JSON payload."}) from exc
         return self.request.data
 
-    def _refresh_product(self, product):
+    def refresh_product(self, product):
         return self.get_base_queryset().get(id=product.id)
 
 
-class AdminProductDetailAPIView(ProductQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-    lookup_field = "id"
+class ProductListAPIView(ProductQuerysetMixin, AdminListAPIView):
+    serializer_class = ProductListSerializer
+    success_list_message = "Products fetched successfully."
 
-    def get_serializer_class(self):
-        if self.request.method in ("PATCH", "PUT"):
-            return ProductUpsertSerializer
-        return ProductDetailSerializer
 
-    def get_queryset(self):
-        return self.get_base_queryset()
+class ProductDetailsAPIView(ProductQuerysetMixin, AdminRetrieveAPIView):
+    serializer_class = ProductDetailSerializer
+    success_detail_message = "Product fetched successfully."
 
-    def retrieve(self, request, *args, **kwargs):
-        serializer = ProductDetailSerializer(self.get_object())
-        return APIResponse.success(data=serializer.data, message="Product fetched successfully.")
 
-    def patch(self, request, *args, **kwargs):
-        product = self.get_object()
-        serializer = self.get_serializer(product, data=self._get_payload(), partial=True, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+class ProductCreateAPIView(ProductQuerysetMixin, AdminCreateAPIView):
+    serializer_class = ProductUpsertSerializer
+    output_serializer_class = ProductDetailSerializer
+    success_create_message = "Product created successfully."
+
+    def get_input_data(self):
+        return ProductQuerysetMixin.get_input_data(self)
+
+    def perform_create(self, serializer):
         product = serializer.save()
-        output = ProductDetailSerializer(self.get_queryset().get(id=product.id))
-        return APIResponse.success(data=output.data, message="Product updated successfully.")
+        return self.refresh_product(product)
 
-    def delete(self, request, *args, **kwargs):
-        product = self.get_object()
-        if product.image_url:
-            delete_image(image_url=product.image_url)
-        for variant in product.variants.exclude(image_url__isnull=True).exclude(image_url=""):
+
+class ProductUpdateAPIView(ProductQuerysetMixin, AdminUpdateAPIView):
+    serializer_class = ProductUpsertSerializer
+    output_serializer_class = ProductDetailSerializer
+    success_update_message = "Product updated successfully."
+
+    def get_input_data(self):
+        return ProductQuerysetMixin.get_input_data(self)
+
+    def perform_update(self, serializer):
+        product = serializer.save()
+        return self.refresh_product(product)
+
+
+class ProductDeleteAPIView(ProductQuerysetMixin, AdminDeleteAPIView):
+    serializer_class = ProductDetailSerializer
+    success_delete_message = "Product deleted successfully."
+
+    def perform_destroy(self, instance):
+        if instance.image_url:
+            delete_image(image_url=instance.image_url)
+        for variant in instance.variants.exclude(image_url__isnull=True).exclude(image_url=""):
             delete_image(image_url=variant.image_url)
-        product.delete()
-        return APIResponse.success(message="Product deleted successfully.")
-
-    def _get_payload(self):
-        product_data = self.request.data.get("product_data")
-        if product_data:
-            try:
-                return json.loads(product_data)
-            except json.JSONDecodeError as exc:
-                raise serializers.ValidationError({"product_data": "Invalid JSON payload."}) from exc
-        return self.request.data
+        instance.delete()
 
 
-class AdminProductListAPIView(generics.ListAPIView):
-    permission_classes = [IsAdminUser]
-    serializer_class = AdminProductListSerializer
-    pagination_class = CustomPagination
+class ProductSettingsAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(page if page is not None else queryset, many=True)
-
-        meta = None
-        if page is not None:
-            meta = {
-                "total": self.paginator.page.paginator.count,
-                "page": self.paginator.page.number,
-                "page_size": self.paginator.page.paginator.per_page,
-            }
-
-        return APIResponse.success(
-            data=serializer.data,
-            meta=meta,
-            message="Products fetched successfully.",
-        )
-
-    def get_queryset(self):
-        queryset = (
-            Product.objects.select_related("category")
-            .prefetch_related("variants", "variants__size", "variants__color")
-            .annotate(
-                total_stock=Coalesce(
-                    Sum("variants__stock"),
-                    Value(0),
-                    output_field=IntegerField(),
-                ),
-                total_orders_placed=Coalesce(
-                    Sum("order_items__quantity"),
-                    Value(0),
-                    output_field=IntegerField(),
-                ),
-            )
-            .order_by("-created_at")
-            .distinct()
-        )
-
-        params = self.request.query_params
-
-        category_ids = params.getlist("category")
-        genders = params.getlist("gender")
-        size_ids = params.getlist("size")
-        color_ids = params.getlist("color")
-        is_active = params.get("is_active")
-        search = params.get("search")
-
-        if category_ids:
-            queryset = queryset.filter(category_id__in=category_ids)
-
-        if genders:
-            queryset = queryset.filter(gender__in=genders)
-
-        if size_ids:
-            queryset = queryset.filter(variants__size_id__in=size_ids)
-
-        if color_ids:
-            queryset = queryset.filter(variants__color_id__in=color_ids)
-
-        if is_active is not None:
-            if is_active.lower() == "true":
-                queryset = queryset.filter(is_active=True)
-            elif is_active.lower() == "false":
-                queryset = queryset.filter(is_active=False)
-
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search)
-                | Q(sku__icontains=search)
-                | Q(slug__icontains=search)
-                | Q(brand__icontains=search)
-                | Q(category__name__icontains=search)
-            )
-
-        return queryset.distinct()
+    def get(self, request, *args, **kwargs):
+        data = {
+            "categories": Category.objects.all().order_by("name"),
+            "sizes": Size.objects.all().order_by("order", "name"),
+            "colors": Color.objects.all().order_by("name"),
+            "collections": Collection.objects.all().order_by("title"),
+            "genders": [{"value": value, "label": label} for value, label in GenderChoice.choices],
+        }
+        serializer = ProductSettingsSerializer(data)
+        return APIResponse.success(data=serializer.data, message="Product settings fetched successfully.")

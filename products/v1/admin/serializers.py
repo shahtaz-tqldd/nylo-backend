@@ -25,7 +25,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class SizeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Size
-        fields = ("id", "name")
+        fields = ("id", "name", "order")
 
 
 class ColorSerializer(serializers.ModelSerializer):
@@ -549,41 +549,3 @@ class ProductUpsertSerializer(serializers.Serializer):
         if not parts:
             return fallback
         return "-".join(parts)
-
-
-class CollectionProductBulkAddSerializer(serializers.Serializer):
-    product_ids = serializers.ListField(child=serializers.UUIDField(), allow_empty=False)
-
-    def validate_product_ids(self, value):
-        products = list(Product.objects.filter(id__in=value))
-        if len(products) != len(set(value)):
-            raise serializers.ValidationError("One or more product_ids do not exist.")
-        self.context["products"] = products
-        return value
-
-
-class AdminProductListSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source="category.name", read_only=True)
-    total_stock = serializers.IntegerField(read_only=True)
-    total_orders_placed = serializers.IntegerField(read_only=True)
-
-    class Meta:
-        model = Product
-        fields = [
-            "id",
-            "title",
-            "slug",
-            "sku",
-            "image_url",
-            "brand",
-            "category",
-            "category_name",
-            "gender",
-            "price",
-            "compare_price",
-            "is_active",
-            "total_stock",
-            "total_orders_placed",
-            "created_at",
-            "updated_at",
-        ]
