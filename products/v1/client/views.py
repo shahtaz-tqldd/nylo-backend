@@ -1,15 +1,30 @@
-from django.db.models import Prefetch, Q
+from django.db import transaction
+from django.db.models import Prefetch, Q, Sum
 
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from app.base.pagination import CustomPagination
 from app.utils.response import APIResponse
-from products.models import Category, Collection, CollectionItem, Color, GenderChoice, Product, Size
+from products.models import (
+    Category,
+    Collection,
+    CollectionItem,
+    Color,
+    GenderChoice,
+    Product,
+    Size,
+    UserCartItem,
+    UserFavouriteItem,
+)
 from products.v1.client.serializers import (
+    AddToCartSerializer,
+    AddToFavouriteSerializer,
     ProductDetailSerializer,
     ProductSettingsSerializer,
     PublicProductListSerializer,
+    UserCartItemSerializer,
+    UserFavouriteItemSerializer,
 )
 
 
@@ -123,6 +138,7 @@ class CollectionListAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.
 
 class ProductDetailsAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.RetrieveAPIView):
     serializer_class = ProductDetailSerializer
+    lookup_field = "slug"
 
     def get_queryset(self):
         return self.get_base_queryset()
@@ -152,28 +168,130 @@ class AuthenticatedUserAPIView(generics.GenericAPIView):
 
 
 class AddToCartAPIView(AuthenticatedUserAPIView):
-    unavailable_message = "Cart functionality is not implemented yet."
-
     def post(self, request, *args, **kwargs):
-        return self.not_available()
+        serializer = AddToCartSerializer(data=request.data)
+        if not serializer.is_valid():
+            return APIResponse.error(errors=serializer.errors, message="Invalid cart payload.")
+
+        product = serializer.validated_data["product"]
+        variant = serializer.validated_data["variant"]
+        action = serializer.validated_data["action"]
+
+        if action == AddToCartSerializer.ACTION_ADD and variant.stock < 1:
+            return APIResponse.error(
+                message="This variant is out of stock.",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            cart_item = (
+                UserCartItem.objects.select_for_update()
+                .filter(user=request.user, product=product, variant=variant)
+                .first()
+            )
+
+            if action == AddToCartSerializer.ACTION_ADD:
+                next_quantity = (cart_item.quantity + 1) if cart_item else 1
+                if next_quantity > variant.stock:
+                    return APIResponse.error(
+                        message="Requested quantity exceeds available stock.",
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if cart_item:
+                    cart_item.quantity = next_quantity
+                    cart_item.save(update_fields=["quantity", "updated_at"])
+                else:
+                    cart_item = UserCartItem.objects.create(
+                        user=request.user,
+                        product=product,
+                        variant=variant,
+                        quantity=1,
+                    )
+
+                output = UserCartItemSerializer(cart_item)
+                return APIResponse.success(data=output.data, message="Cart updated successfully.")
+
+            if cart_item is None:
+                return APIResponse.error(
+                    message="Cart item not found.",
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if cart_item.quantity > 1:
+                cart_item.quantity -= 1
+                cart_item.save(update_fields=["quantity", "updated_at"])
+                output = UserCartItemSerializer(cart_item)
+                return APIResponse.success(data=output.data, message="Cart updated successfully.")
+
+            cart_item.delete()
+            return APIResponse.success(message="Item removed from cart successfully.")
 
 
 class UserCartListAPIView(AuthenticatedUserAPIView):
-    unavailable_message = "Cart functionality is not implemented yet."
+    pagination_class = CustomPagination
 
     def get(self, request, *args, **kwargs):
-        return self.not_available()
+        queryset = (
+            UserCartItem.objects.filter(user=request.user)
+            .select_related("product__category", "variant__size", "variant__color")
+            .order_by("-created_at")
+        )
+        total_items = queryset.aggregate(total_items=Sum("quantity"))["total_items"] or 0
+
+        page = self.paginate_queryset(queryset)
+        serializer = UserCartItemSerializer(page if page is not None else queryset, many=True)
+
+        meta = {"total_items": total_items}
+        if page is not None:
+            meta.update(
+                {
+                    "total": self.paginator.page.paginator.count,
+                    "page": self.paginator.page.number,
+                    "page_size": self.paginator.page.paginator.per_page,
+                }
+            )
+
+        return APIResponse.success(
+            data=serializer.data,
+            meta=meta,
+            message="Cart items fetched successfully.",
+        )
 
 
 class AddToFavouriteAPIView(AuthenticatedUserAPIView):
-    unavailable_message = "Favourite functionality is not implemented yet."
-
     def post(self, request, *args, **kwargs):
-        return self.not_available()
+        serializer = AddToFavouriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return APIResponse.error(errors=serializer.errors, message="Invalid favourite payload.")
+
+        product = serializer.validated_data["product"]
+        action = serializer.validated_data["action"]
+
+        favourite_item = UserFavouriteItem.objects.filter(user=request.user, product=product).first()
+
+        if action == AddToFavouriteSerializer.ACTION_ADD:
+            if favourite_item is None:
+                favourite_item = UserFavouriteItem.objects.create(user=request.user, product=product)
+            output = UserFavouriteItemSerializer(favourite_item)
+            return APIResponse.success(data=output.data, message="Favourite updated successfully.")
+
+        if favourite_item is None:
+            return APIResponse.error(
+                message="Favourite item not found.",
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        favourite_item.delete()
+        return APIResponse.success(message="Item removed from favourites successfully.")
 
 
 class FavouriteListAPIView(AuthenticatedUserAPIView):
-    unavailable_message = "Favourite functionality is not implemented yet."
-
     def get(self, request, *args, **kwargs):
-        return self.not_available()
+        queryset = (
+            UserFavouriteItem.objects.filter(user=request.user)
+            .select_related("product__category")
+            .order_by("-created_at")
+        )
+        serializer = UserFavouriteItemSerializer(queryset, many=True)
+        return APIResponse.success(data=serializer.data, message="Favourite items fetched successfully.")

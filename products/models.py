@@ -2,6 +2,7 @@ from django.db import models
 from django.core.validators import RegexValidator
 from django.utils.text import slugify
 from app.base.models import BaseModel
+from django.conf import settings
 
 hex_validator = RegexValidator(
     regex=r'^#(?:[0-9a-fA-F]{3}){1,2}$',
@@ -166,3 +167,56 @@ class CollectionItem(BaseModel):
         ordering = ['order']
 
 
+class UserCartItem(BaseModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+    )
+    variant = models.ForeignKey(
+        ProductVariant,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+    )
+    quantity = models.PositiveIntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.user} - {self.product.title} x {self.quantity}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [("user", "product", "variant")]
+        indexes = [
+            models.Index(fields=["user"]),
+            models.Index(fields=["product"]),
+            models.Index(fields=["variant"]),
+        ]
+
+
+class UserFavouriteItem(BaseModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="favourite_items",
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="favourite_items",
+    )
+
+    def __str__(self):
+        return f"{self.user} - {self.product.title}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [("user", "product")]
+        indexes = [
+            models.Index(fields=["user"]),
+            models.Index(fields=["product"]),
+        ]

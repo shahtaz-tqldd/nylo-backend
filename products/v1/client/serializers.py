@@ -8,6 +8,8 @@ from products.models import (
     Product,
     ProductVariant,
     Size,
+    UserCartItem,
+    UserFavouriteItem,
 )
 
 
@@ -235,3 +237,109 @@ class ProductSettingsSerializer(serializers.Serializer):
     colors = ColorSerializer(many=True)
     collections = CollectionSerializer(many=True)
     genders = GenderOptionSerializer(many=True)
+
+
+class CartFavouriteActionSerializer(serializers.Serializer):
+    ACTION_ADD = "add"
+    ACTION_REMOVE = "remove"
+    ACTION_CHOICES = (
+        (ACTION_ADD, "Add"),
+        (ACTION_REMOVE, "Remove"),
+    )
+
+    action = serializers.ChoiceField(choices=ACTION_CHOICES)
+
+
+class AddToCartSerializer(CartFavouriteActionSerializer):
+    product_id = serializers.UUIDField()
+    variant_id = serializers.UUIDField()
+
+    def validate(self, attrs):
+        product = Product.objects.filter(id=attrs["product_id"], is_active=True).first()
+        if product is None:
+            raise serializers.ValidationError({"product_id": "Active product not found."})
+
+        variant = (
+            ProductVariant.objects.select_related("product", "size", "color")
+            .filter(
+                id=attrs["variant_id"],
+                product_id=product.id,
+                is_active=True,
+            )
+            .first()
+        )
+        if variant is None:
+            raise serializers.ValidationError({"variant_id": "Active variant not found for this product."})
+
+        attrs["product"] = product
+        attrs["variant"] = variant
+        return attrs
+
+
+class AddToFavouriteSerializer(CartFavouriteActionSerializer):
+    product_id = serializers.UUIDField()
+
+    def validate(self, attrs):
+        product = Product.objects.filter(id=attrs["product_id"], is_active=True).first()
+        if product is None:
+            raise serializers.ValidationError({"product_id": "Active product not found."})
+
+        attrs["product"] = product
+        return attrs
+
+
+class CartProductSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "title",
+            "brand",
+            "image_url",
+            "category_name",
+            "gender",
+            "price",
+            "compare_price",
+            "slug",
+        )
+        read_only_fields = fields
+
+
+class UserCartItemSerializer(serializers.ModelSerializer):
+    product = CartProductSerializer(read_only=True)
+    variant = ProductVariantOutputSerializer(read_only=True)
+    unit_price = serializers.DecimalField(source="product.price", max_digits=10, decimal_places=2, read_only=True)
+    total_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserCartItem
+        fields = (
+            "id",
+            "product",
+            "variant",
+            "quantity",
+            "unit_price",
+            "total_price",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_total_price(self, obj):
+        return obj.product.price * obj.quantity
+
+
+class UserFavouriteItemSerializer(serializers.ModelSerializer):
+    product = CartProductSerializer(read_only=True)
+
+    class Meta:
+        model = UserFavouriteItem
+        fields = (
+            "id",
+            "product",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
