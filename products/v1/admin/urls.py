@@ -36,11 +36,23 @@ product_urls = [
     path("delete/<uuid:id>/", views.ProductDeleteAPIView.as_view(), name="product-delete"),
 ]
 
+signature_product_urls = [
+    path("create/", views.SignatureProductCreateAPIView.as_view(), name="signature-product-create"),
+    path("delete/<uuid:product_id>/", views.SignatureProductDeleteAPIView.as_view(), name="signature-product-delete"),
+]
+
+offer_product_urls = [
+    path("create/", views.OfferProductCreateAPIView.as_view(), name="offer-product-create"),
+    path("delete/<uuid:product_id>/", views.OfferProductDeleteAPIView.as_view(), name="offer-product-delete"),
+]
+
 urlpatterns = [
     path("category/", include((category_urls, "category_admin"))),
     path("size/", include((size_urls, "size_admin"))),
     path("color/", include((color_urls, "color_admin"))),
     path("collection/", include((collection_urls, "collection_admin"))),
+    path("signature-item/", include((signature_product_urls, "signature_product_admin"))),
+    path("offer-item/", include((offer_product_urls, "offer_product_admin"))),
     path("", include((product_urls, "product_admin"))),
     path("settings/", views.ProductSettingsAPIView.as_view(), name="product-settings"),
 ]

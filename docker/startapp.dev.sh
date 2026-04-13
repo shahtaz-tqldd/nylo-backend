@@ -10,7 +10,7 @@ if [[ "${1:-}" == "--reset-db" ]]; then
   shift
 fi
 
-docker kill $(docker ps -q)
+# docker kill $(docker ps -q)
 
 if [[ "${RESET_DB}" == "1" ]]; then
   docker compose -f "${SCRIPT_DIR}/compose.dev.yml" down -v --remove-orphans

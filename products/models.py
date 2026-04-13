@@ -220,3 +220,42 @@ class UserFavouriteItem(BaseModel):
             models.Index(fields=["user"]),
             models.Index(fields=["product"]),
         ]
+
+
+class SignatureProductItem(BaseModel):
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="signature_items",
+    )
+
+    def __str__(self):
+        return f"{self.product.title}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [("product",)]
+        indexes = [
+            models.Index(fields=["product"]),
+        ]
+
+
+class OfferProductItem(BaseModel):
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="offer_items",
+    )
+
+    offer_ends_at = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.product.title}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [("product",)]
+        indexes = [
+            models.Index(fields=["product"]),
+            models.Index(fields=["offer_ends_at"]),
+        ]

@@ -5,8 +5,10 @@ from products.models import (
     Collection,
     CollectionItem,
     Color,
+    OfferProductItem,
     Product,
     ProductVariant,
+    SignatureProductItem,
     Size,
     UserCartItem,
     UserFavouriteItem,
@@ -161,6 +163,41 @@ class PublicProductListSerializer(serializers.ModelSerializer):
         return len([variant for variant in variants if variant.is_active])
 
 
+class FeaturedProductSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+    in_stock = serializers.SerializerMethodField()
+    variants_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "title",
+            "brand",
+            "image_url",
+            "category_name",
+            "gender",
+            "price",
+            "compare_price",
+            "slug",
+            "in_stock",
+            "variants_count",
+        )
+        read_only_fields = fields
+
+    def get_in_stock(self, obj):
+        variants = getattr(obj, "prefetched_variants", None)
+        if variants is None:
+            variants = obj.variants.filter(is_active=True)
+        return any(variant.stock > 0 for variant in variants)
+
+    def get_variants_count(self, obj):
+        variants = getattr(obj, "prefetched_variants", None)
+        if variants is None:
+            return obj.variants.filter(is_active=True).count()
+        return len([variant for variant in variants if variant.is_active])
+
+
 class ProductDetailSerializer(ProductListSerializer):
     variants = serializers.SerializerMethodField()
     features = serializers.JSONField(read_only=True)
@@ -224,6 +261,51 @@ class CollectionSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "slug", "created_at", "updated_at")
+
+
+class PublicCollectionListSerializer(serializers.ModelSerializer):
+    total_products = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Collection
+        fields = (
+            "id",
+            "title",
+            "subtitle",
+            "type",
+            "description",
+            "image_url",
+            "slug",
+            "is_active",
+            "created_at",
+            "updated_at",
+            "total_products",
+        )
+        read_only_fields = fields
+
+
+class SignatureProductItemSerializer(serializers.ModelSerializer):
+    product = FeaturedProductSerializer(read_only=True)
+
+    class Meta:
+        model = SignatureProductItem
+        fields = ("id", "product", "created_at", "updated_at")
+        read_only_fields = fields
+
+
+class OfferProductItemSerializer(serializers.ModelSerializer):
+    product = FeaturedProductSerializer(read_only=True)
+
+    class Meta:
+        model = OfferProductItem
+        fields = ("id", "product", "offer_ends_at", "created_at", "updated_at")
+        read_only_fields = fields
+
+
+class FeaturedProductsSerializer(serializers.Serializer):
+    signature_items = SignatureProductItemSerializer(many=True)
+    offer_items = OfferProductItemSerializer(many=True)
+    best_selling_products = FeaturedProductSerializer(many=True)
 
 
 class GenderOptionSerializer(serializers.Serializer):

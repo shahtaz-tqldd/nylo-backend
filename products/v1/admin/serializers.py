@@ -2,6 +2,7 @@ from django.db import transaction
 from django.conf import settings
 from django.utils.text import slugify
 from rest_framework import serializers
+from uuid import uuid4
 
 from app.utils.cloudinary import delete_image, upload_image
 from products.models import (
@@ -10,8 +11,10 @@ from products.models import (
     CollectionItem,
     Color,
     GenderChoice,
+    OfferProductItem,
     Product,
     ProductVariant,
+    SignatureProductItem,
     Size,
 )
 
@@ -100,6 +103,59 @@ class GenderOptionSerializer(serializers.Serializer):
     label = serializers.CharField()
 
 
+class FeaturedProductActionSerializer(serializers.Serializer):
+    product_id = serializers.UUIDField()
+
+    def validate_product_id(self, value):
+        product = Product.objects.filter(id=value).first()
+        if product is None:
+            raise serializers.ValidationError("Product not found.")
+        self.product = product
+        return value
+
+
+class OfferProductActionSerializer(FeaturedProductActionSerializer):
+    offer_ends_at = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class FeaturedAdminProductSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "title",
+            "brand",
+            "image_url",
+            "category_name",
+            "gender",
+            "price",
+            "compare_price",
+            "slug",
+            "is_active",
+        )
+        read_only_fields = fields
+
+
+class FeaturedProductItemSerializer(serializers.ModelSerializer):
+    product = FeaturedAdminProductSerializer(read_only=True)
+
+    class Meta:
+        model = SignatureProductItem
+        fields = ("id", "product", "created_at", "updated_at")
+        read_only_fields = fields
+
+
+class OfferProductItemSerializer(serializers.ModelSerializer):
+    product = FeaturedAdminProductSerializer(read_only=True)
+
+    class Meta:
+        model = OfferProductItem
+        fields = ("id", "product", "offer_ends_at", "created_at", "updated_at")
+        read_only_fields = fields
+
+
 class ProductSettingsSerializer(serializers.Serializer):
     categories = CategorySerializer(many=True)
     sizes = SizeSerializer(many=True)
@@ -160,6 +216,9 @@ class ProductListSerializer(serializers.ModelSerializer):
     collections = serializers.SerializerMethodField()
     total_stock = serializers.SerializerMethodField()
     variants_count = serializers.SerializerMethodField()
+    orders_count = serializers.IntegerField(read_only=True)
+    is_signature_item = serializers.BooleanField(read_only=True)
+    is_offer_item = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Product
@@ -180,6 +239,9 @@ class ProductListSerializer(serializers.ModelSerializer):
             "collections",
             "total_stock",
             "variants_count",
+            "orders_count",
+            "is_signature_item",
+            "is_offer_item",
             "created_at",
             "updated_at",
         )
@@ -414,12 +476,11 @@ class ProductUpsertSerializer(serializers.Serializer):
     def create(self, validated_data):
         request = self.context["request"]
         product_details = validated_data["product_details"]
-        product_image_url = self._upload_product_image(product_details, None)
         product = Product.objects.create(
             title=product_details["title"],
             description=product_details.get("description"),
             brand=product_details.get("brand"),
-            image_url=product_image_url,
+            image_url=None,
             category=product_details["category_obj"],
             gender=product_details["gender"],
             price=(product_details.get("pricing") or {}).get("price") or 0,
@@ -434,6 +495,10 @@ class ProductUpsertSerializer(serializers.Serializer):
             created_by=request.user,
             updated_by=request.user,
         )
+
+        product.image_url = self._upload_product_image(product, product_details, None)
+        if product.image_url:
+            product.save(update_fields=["image_url", "updated_at"])
 
         self._sync_collections(product, product_details.get("collection_objs", []), request.user)
         self._sync_variants(product, validated_data.get("variants", []), request.user)
@@ -450,7 +515,7 @@ class ProductUpsertSerializer(serializers.Serializer):
         instance.description = product_details.get("description", instance.description)
         instance.brand = product_details.get("brand", instance.brand)
         if product_details:
-            instance.image_url = self._upload_product_image(product_details, instance.image_url)
+            instance.image_url = self._upload_product_image(instance, product_details, instance.image_url)
         instance.category = product_details.get("category_obj", instance.category)
         instance.gender = product_details.get("gender", instance.gender)
         instance.price = pricing.get("price", instance.price)
@@ -491,7 +556,7 @@ class ProductUpsertSerializer(serializers.Serializer):
             delete_image(image_url=existing_variant.image_url)
         product.variants.all().delete()
         for item in variants:
-            image_url = self._upload_variant_image(item)
+            image_url = self._upload_variant_image(product, item)
             ProductVariant.objects.create(
                 product=product,
                 size=item.get("size_obj"),
@@ -504,7 +569,7 @@ class ProductUpsertSerializer(serializers.Serializer):
                 updated_by=user,
             )
 
-    def _upload_product_image(self, product_details, current_url):
+    def _upload_product_image(self, product, product_details, current_url):
         request = self.context["request"]
         file_obj = request.FILES.get("product_image")
         if not file_obj:
@@ -513,15 +578,19 @@ class ProductUpsertSerializer(serializers.Serializer):
         if current_url:
             delete_image(image_url=current_url)
 
-        product_slug = self._build_slug(product_details.get("title"), product_details.get("sku"), "product")
+        product_slug = self._build_slug(
+            product_details.get("title"),
+            product_details.get("sku"),
+            f"product-{product.id}",
+        )
         upload = upload_image(
             file_obj,
             folder=f"{settings.CLOUDINARY_FOLDER}/products",
-            public_id=product_slug,
+            public_id=f"{product_slug}-{uuid4().hex[:8]}",
         )
         return upload["url"]
 
-    def _upload_variant_image(self, variant_data):
+    def _upload_variant_image(self, product, variant_data):
         request = self.context["request"]
         combination_key = variant_data.get("combination_key")
         if not combination_key:
@@ -536,11 +605,15 @@ class ProductUpsertSerializer(serializers.Serializer):
             or self.initial_data.get("product_details", {}).get("title")
             or "product"
         )
-        variant_slug = self._build_slug(product_title, combination_key, "variant")
+        variant_slug = self._build_slug(
+            product_title,
+            combination_key,
+            f"variant-{product.id}",
+        )
         upload = upload_image(
             file_obj,
             folder=f"{settings.CLOUDINARY_FOLDER}/variants",
-            public_id=variant_slug,
+            public_id=f"{variant_slug}-{uuid4().hex[:8]}",
         )
         return upload["url"]
 

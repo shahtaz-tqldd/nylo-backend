@@ -1,5 +1,7 @@
 from django.db import transaction
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -12,7 +14,9 @@ from products.models import (
     CollectionItem,
     Color,
     GenderChoice,
+    OfferProductItem,
     Product,
+    SignatureProductItem,
     Size,
     UserCartItem,
     UserFavouriteItem,
@@ -20,6 +24,8 @@ from products.models import (
 from products.v1.client.serializers import (
     AddToCartSerializer,
     AddToFavouriteSerializer,
+    FeaturedProductsSerializer,
+    PublicCollectionListSerializer,
     ProductDetailSerializer,
     ProductSettingsSerializer,
     PublicProductListSerializer,
@@ -126,14 +132,25 @@ class ProductListAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.Lis
 
 
 class CollectionListAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.ListAPIView):
-    serializer_class = PublicProductListSerializer
+    serializer_class = PublicCollectionListSerializer
+    success_list_message = "Collections fetched successfully."
 
     def get_queryset(self):
-        collection_id = self.request.query_params.get("collection_id")
-        queryset = self.get_base_queryset()
-        if collection_id:
-            queryset = queryset.filter(collectionitem__collection_id=collection_id)
-        return self.apply_filters(queryset)
+        queryset = Collection.objects.annotate(
+            total_products=Count("items", filter=Q(items__product__is_active=True), distinct=True)
+        )
+
+        text = (self.request.query_params.get("search") or self.request.query_params.get("text") or "").strip()
+        if text:
+            queryset = queryset.filter(
+                Q(title__icontains=text)
+                | Q(subtitle__icontains=text)
+                | Q(type__icontains=text)
+                | Q(description__icontains=text)
+                | Q(slug__icontains=text)
+            )
+
+        return queryset.order_by("title")
 
 
 class ProductDetailsAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.RetrieveAPIView):
@@ -157,6 +174,41 @@ class ProductSettingsAPIView(generics.GenericAPIView):
         }
         serializer = ProductSettingsSerializer(data)
         return APIResponse.success(data=serializer.data, message="Product settings fetched successfully.")
+
+
+class FeaturedProductsAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        signature_items = SignatureProductItem.objects.select_related("product__category").prefetch_related(
+            Prefetch("product__variants", to_attr="prefetched_variants")
+        ).filter(product__is_active=True)
+
+        offer_items = OfferProductItem.objects.select_related("product__category").prefetch_related(
+            Prefetch("product__variants", to_attr="prefetched_variants")
+        ).filter(
+            product__is_active=True
+        ).filter(
+            Q(offer_ends_at__isnull=True) | Q(offer_ends_at__gte=timezone.now())
+        )
+
+        best_selling_products = (
+            Product.objects.select_related("category")
+            .prefetch_related(Prefetch("variants", to_attr="prefetched_variants"))
+            .filter(is_active=True)
+            .annotate(total_sold=Coalesce(Sum("order_items__quantity"), 0))
+            .filter(total_sold__gt=0)
+            .order_by("-total_sold", "-created_at")[:5]
+        )
+
+        serializer = FeaturedProductsSerializer(
+            {
+                "signature_items": signature_items,
+                "offer_items": offer_items,
+                "best_selling_products": best_selling_products,
+            }
+        )
+        return APIResponse.success(data=serializer.data, message="Featured products fetched successfully.")
 
 
 class AuthenticatedUserAPIView(generics.GenericAPIView):

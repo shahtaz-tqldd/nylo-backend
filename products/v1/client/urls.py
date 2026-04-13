@@ -11,6 +11,7 @@ product_user_urls = [
 urlpatterns = [
     path("list/", views.ProductListAPIView.as_view(), name="product-list"),
     path("collection/list/", views.CollectionListAPIView.as_view(), name="collection-list"),
+    path("featured/", views.FeaturedProductsAPIView.as_view(), name="featured-products"),
     path("settings/", views.ProductSettingsAPIView.as_view(), name="product-settings"),
     path("user/", include(product_user_urls)),
     path("<slug>/", views.ProductDetailsAPIView.as_view(), name="product-details"),

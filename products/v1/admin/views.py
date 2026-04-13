@@ -1,6 +1,7 @@
 import json
 
-from django.db.models import Prefetch, Q
+from django.db import IntegrityError
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from rest_framework import generics, serializers, status
 from rest_framework.permissions import IsAuthenticated
 
@@ -8,11 +9,25 @@ from app.base.pagination import CustomPagination
 from app.utils.cloudinary import delete_image
 from app.utils.response import APIResponse
 from auth.permissions import IsAdmin
-from products.models import Category, Collection, CollectionItem, Color, GenderChoice, Product, Size
+from products.models import (
+    Category,
+    Collection,
+    CollectionItem,
+    Color,
+    GenderChoice,
+    OfferProductItem,
+    Product,
+    SignatureProductItem,
+    Size,
+)
 from products.v1.admin.serializers import (
     CategorySerializer,
     CollectionSerializer,
     ColorSerializer,
+    FeaturedProductActionSerializer,
+    FeaturedProductItemSerializer,
+    OfferProductActionSerializer,
+    OfferProductItemSerializer,
     ProductDetailSerializer,
     ProductListSerializer,
     ProductSettingsSerializer,
@@ -215,6 +230,15 @@ class ProductQuerysetMixin:
     def get_base_queryset(self):
         return (
             Product.objects.select_related("category")
+            .annotate(
+                orders_count=Count("order_items__order", distinct=True),
+                is_signature_item=Exists(
+                    SignatureProductItem.objects.filter(product_id=OuterRef("pk"))
+                ),
+                is_offer_item=Exists(
+                    OfferProductItem.objects.filter(product_id=OuterRef("pk"))
+                ),
+            )
             .prefetch_related(
                 Prefetch("variants", to_attr="prefetched_variants"),
                 Prefetch(
@@ -347,3 +371,92 @@ class ProductSettingsAPIView(generics.GenericAPIView):
         }
         serializer = ProductSettingsSerializer(data)
         return APIResponse.success(data=serializer.data, message="Product settings fetched successfully.")
+
+
+class SignatureProductCreateAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = FeaturedProductActionSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            item, created = SignatureProductItem.objects.get_or_create(
+                product=serializer.product,
+                defaults={"created_by": request.user, "updated_by": request.user},
+            )
+        except IntegrityError:
+            item = SignatureProductItem.objects.get(product=serializer.product)
+            created = False
+
+        if not created:
+            item.updated_by = request.user
+            item.save(update_fields=["updated_by", "updated_at"])
+
+        output = FeaturedProductItemSerializer(item)
+        return APIResponse.success(
+            data=output.data,
+            message="Product added to signature items successfully.",
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class SignatureProductDeleteAPIView(generics.DestroyAPIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+    queryset = SignatureProductItem.objects.select_related("product")
+    lookup_field = "product_id"
+    lookup_url_kwarg = "product_id"
+
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return APIResponse.success(message="Product removed from signature items successfully.")
+
+
+class OfferProductCreateAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = OfferProductActionSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        defaults = {
+            "offer_ends_at": serializer.validated_data.get("offer_ends_at"),
+            "created_by": request.user,
+            "updated_by": request.user,
+        }
+
+        try:
+            item, created = OfferProductItem.objects.get_or_create(
+                product=serializer.product,
+                defaults=defaults,
+            )
+        except IntegrityError:
+            item = OfferProductItem.objects.get(product=serializer.product)
+            created = False
+
+        if not created:
+            item.offer_ends_at = serializer.validated_data.get("offer_ends_at", item.offer_ends_at)
+            item.updated_by = request.user
+            item.save(update_fields=["offer_ends_at", "updated_by", "updated_at"])
+
+        output = OfferProductItemSerializer(item)
+        return APIResponse.success(
+            data=output.data,
+            message="Product added to offer items successfully.",
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class OfferProductDeleteAPIView(generics.DestroyAPIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+    queryset = OfferProductItem.objects.select_related("product")
+    lookup_field = "product_id"
+    lookup_url_kwarg = "product_id"
+
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return APIResponse.success(message="Product removed from offer items successfully.")
