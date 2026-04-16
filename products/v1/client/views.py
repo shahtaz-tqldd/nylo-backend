@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum, Exists, OuterRef
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -158,7 +158,20 @@ class ProductDetailsAPIView(ProductQuerysetMixin, PublicResponseMixin, generics.
     lookup_field = "slug"
 
     def get_queryset(self):
-        return self.get_base_queryset()
+        queryset = self.get_base_queryset()
+        user = self.request.user
+
+        if user.is_authenticated:
+            queryset = queryset.annotate(
+                added_to_favourite=Exists(
+                    UserFavouriteItem.objects.filter(
+                        user=user,
+                        product_id=OuterRef("pk")
+                    )
+                )
+            )
+        return queryset
+    
 
 
 class ProductSettingsAPIView(generics.GenericAPIView):
@@ -180,19 +193,20 @@ class FeaturedProductsAPIView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def get(self, request, *args, **kwargs):
-        signature_items = SignatureProductItem.objects.select_related("product__category").prefetch_related(
-            Prefetch("product__variants", to_attr="prefetched_variants")
-        ).filter(product__is_active=True)
-
-        offer_items = OfferProductItem.objects.select_related("product__category").prefetch_related(
-            Prefetch("product__variants", to_attr="prefetched_variants")
-        ).filter(
-            product__is_active=True
-        ).filter(
-            Q(offer_ends_at__isnull=True) | Q(offer_ends_at__gte=timezone.now())
+        signature_items = list(
+            SignatureProductItem.objects.select_related("product__category")
+            .prefetch_related(Prefetch("product__variants", to_attr="prefetched_variants"))
+            .filter(product__is_active=True)
         )
 
-        best_selling_products = (
+        offer_items = list(
+            OfferProductItem.objects.select_related("product__category")
+            .prefetch_related(Prefetch("product__variants", to_attr="prefetched_variants"))
+            .filter(product__is_active=True)
+            .filter(Q(offer_ends_at__isnull=True) | Q(offer_ends_at__gte=timezone.now()))
+        )
+
+        best_selling_products = list(
             Product.objects.select_related("category")
             .prefetch_related(Prefetch("variants", to_attr="prefetched_variants"))
             .filter(is_active=True)
@@ -203,9 +217,9 @@ class FeaturedProductsAPIView(generics.GenericAPIView):
 
         serializer = FeaturedProductsSerializer(
             {
-                "signature_items": signature_items,
-                "offer_items": offer_items,
-                "best_selling_products": best_selling_products,
+                "signature_items": signature_items or [],
+                "offer_items": offer_items or [],
+                "best_selling_products": best_selling_products or [],
             }
         )
         return APIResponse.success(data=serializer.data, message="Featured products fetched successfully.")
@@ -228,6 +242,7 @@ class AddToCartAPIView(AuthenticatedUserAPIView):
         product = serializer.validated_data["product"]
         variant = serializer.validated_data["variant"]
         action = serializer.validated_data["action"]
+        requested_quantity = serializer.validated_data["quantity"]
 
         if action == AddToCartSerializer.ACTION_ADD and variant.stock < 1:
             return APIResponse.error(
@@ -243,22 +258,21 @@ class AddToCartAPIView(AuthenticatedUserAPIView):
             )
 
             if action == AddToCartSerializer.ACTION_ADD:
-                next_quantity = (cart_item.quantity + 1) if cart_item else 1
-                if next_quantity > variant.stock:
+                if requested_quantity > variant.stock:
                     return APIResponse.error(
                         message="Requested quantity exceeds available stock.",
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
                 if cart_item:
-                    cart_item.quantity = next_quantity
+                    cart_item.quantity = requested_quantity
                     cart_item.save(update_fields=["quantity", "updated_at"])
                 else:
                     cart_item = UserCartItem.objects.create(
                         user=request.user,
                         product=product,
                         variant=variant,
-                        quantity=1,
+                        quantity=requested_quantity,
                     )
 
                 output = UserCartItemSerializer(cart_item)
@@ -270,8 +284,9 @@ class AddToCartAPIView(AuthenticatedUserAPIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            if cart_item.quantity > 1:
-                cart_item.quantity -= 1
+            remaining_quantity = cart_item.quantity - requested_quantity
+            if remaining_quantity > 0:
+                cart_item.quantity = remaining_quantity
                 cart_item.save(update_fields=["quantity", "updated_at"])
                 output = UserCartItemSerializer(cart_item)
                 return APIResponse.success(data=output.data, message="Cart updated successfully.")

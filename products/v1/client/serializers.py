@@ -66,6 +66,26 @@ class ProductVariantOutputSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ProductDetailVariantOutputSerializer(ProductVariantOutputSerializer):
+    added_to_cart = serializers.SerializerMethodField()
+    cart_quantity = serializers.SerializerMethodField()
+
+    class Meta(ProductVariantOutputSerializer.Meta):
+        fields = ProductVariantOutputSerializer.Meta.fields + (
+            "added_to_cart",
+            "cart_quantity",
+        )
+        read_only_fields = fields
+
+    def get_added_to_cart(self, obj):
+        cart_quantities = self.context.get("cart_quantities", {})
+        return cart_quantities.get(obj.id, 0) > 0
+
+    def get_cart_quantity(self, obj):
+        cart_quantities = self.context.get("cart_quantities", {})
+        return cart_quantities.get(obj.id, 0)
+
+
 class ProductCollectionItemSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="collection.id", read_only=True)
     title = serializers.CharField(source="collection.title", read_only=True)
@@ -204,6 +224,7 @@ class ProductDetailSerializer(ProductListSerializer):
     specifications = serializers.JSONField(read_only=True)
     tags = serializers.JSONField(read_only=True)
     seo = serializers.SerializerMethodField()
+    added_to_favourite = serializers.BooleanField(read_only=True)
 
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + (
@@ -212,13 +233,31 @@ class ProductDetailSerializer(ProductListSerializer):
             "tags",
             "seo",
             "variants",
+            "added_to_favourite",
         )
 
     def get_variants(self, obj):
         variants = getattr(obj, "prefetched_variants", None)
         if variants is None:
             variants = obj.variants.select_related("size", "color").all()
-        return ProductVariantOutputSerializer(variants, many=True).data
+
+        cart_quantities = {}
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            cart_quantities = {
+                item["variant_id"]: item["quantity"]
+                for item in UserCartItem.objects.filter(
+                    user=request.user,
+                    product=obj,
+                    variant_id__in=[variant.id for variant in variants],
+                ).values("variant_id", "quantity")
+            }
+
+        return ProductDetailVariantOutputSerializer(
+            variants,
+            many=True,
+            context={**self.context, "cart_quantities": cart_quantities},
+        ).data
 
     def get_seo(self, obj):
         return {
@@ -303,9 +342,9 @@ class OfferProductItemSerializer(serializers.ModelSerializer):
 
 
 class FeaturedProductsSerializer(serializers.Serializer):
-    signature_items = SignatureProductItemSerializer(many=True)
-    offer_items = OfferProductItemSerializer(many=True)
-    best_selling_products = FeaturedProductSerializer(many=True)
+    signature_items = SignatureProductItemSerializer(many=True, required=False, default=list)
+    offer_items = OfferProductItemSerializer(many=True, required=False, default=list)
+    best_selling_products = FeaturedProductSerializer(many=True, required=False, default=list)
 
 
 class GenderOptionSerializer(serializers.Serializer):
@@ -335,6 +374,7 @@ class CartFavouriteActionSerializer(serializers.Serializer):
 class AddToCartSerializer(CartFavouriteActionSerializer):
     product_id = serializers.UUIDField()
     variant_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1, required=False, default=1)
 
     def validate(self, attrs):
         product = Product.objects.filter(id=attrs["product_id"], is_active=True).first()

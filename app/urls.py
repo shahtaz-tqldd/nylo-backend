@@ -8,8 +8,10 @@ v1_urls = [
     path("auth/", include("auth.urls")),
     path("products/", include("products.v1.client.urls")),
     path("orders/", include("orders.api.v1.client.urls")),
+    path("shop/", include("shop.v1.client.urls")),
     path("admin/products/", include("products.v1.admin.urls")),
     path("admin/orders/", include("orders.api.v1.admin.urls")),
+    path("admin/shop/", include("shop.v1.admin.urls")),
 ]
 
 urlpatterns = [

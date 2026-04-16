@@ -21,7 +21,7 @@ MODULER_APPS = [
     "auth.apps.AuthConfig",
     "products",
     "orders",
-    # "shop",
+    "shop",
     # "coupons",
     # "campaigns"
 ]
