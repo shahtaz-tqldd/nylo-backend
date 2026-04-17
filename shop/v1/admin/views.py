@@ -1,4 +1,5 @@
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
 from app.utils.response import APIResponse
@@ -42,6 +43,7 @@ class AdminSingletonContentAPIView(generics.GenericAPIView):
 class StoreConfigurationAPIView(AdminSingletonContentAPIView):
     serializer_class = StoreConfigurationSerializer
     model = StoreConfiguration
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     success_get_message = "Store configuration fetched successfully."
     success_update_message = "Store configuration updated successfully."
 
@@ -56,6 +58,7 @@ class LegalPageContentAPIView(AdminSingletonContentAPIView):
 class AboutPageContentAPIView(AdminSingletonContentAPIView):
     serializer_class = AboutPageContentSerializer
     model = AboutPageContent
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     success_get_message = "About page content fetched successfully."
     success_update_message = "About page content updated successfully."
 
