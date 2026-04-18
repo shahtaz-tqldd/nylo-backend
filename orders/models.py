@@ -44,6 +44,13 @@ class Order(models.Model):
         on_delete=models.SET_NULL,
         related_name="orders",
     )
+    coupon = models.ForeignKey(
+        "coupons.Coupon",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+    )
     status = models.CharField(
         max_length=30,
         choices=OrderStatusChoice.choices,

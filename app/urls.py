@@ -4,19 +4,25 @@ from django.conf.urls.static import static
 from django.conf import settings
 from orders.api.v1.client.views import StripeWebhookAPIView
 
-v1_urls = [
+v1_client_urls = [
     path("auth/", include("auth.urls")),
     path("products/", include("products.v1.client.urls")),
     path("orders/", include("orders.api.v1.client.urls")),
+    path("coupons/", include("coupons.api.v1.client.urls")),
     path("shop/", include("shop.v1.client.urls")),
-    path("admin/products/", include("products.v1.admin.urls")),
-    path("admin/orders/", include("orders.api.v1.admin.urls")),
-    path("admin/shop/", include("shop.v1.admin.urls")),
+]
+
+v1_admin_urls = [
+    path("products/", include("products.v1.admin.urls")),
+    path("orders/", include("orders.api.v1.admin.urls")),
+    path("coupons/", include("coupons.api.v1.admin.urls")),
+    path("shop/", include("shop.v1.admin.urls")),
 ]
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/v1/", include(v1_urls)),
+    path("api/v1/", include(v1_client_urls)),
+    path("api/v1/admin/", include(v1_admin_urls)),
     path("payments/stripe/webhook/", StripeWebhookAPIView.as_view(), name="stripe-webhook"),
 ]
 

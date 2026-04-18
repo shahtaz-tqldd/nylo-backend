@@ -3,6 +3,15 @@ from rest_framework import serializers
 from orders.models import Order, OrderItem
 
 
+class AppliedCouponSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    code = serializers.CharField(read_only=True)
+    coupon_type = serializers.CharField(read_only=True)
+    value = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    minimum_order_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    maximum_discount_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True, allow_null=True)
+
+
 class ShippingAddressSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=32)
     last_name = serializers.CharField(max_length=32)
@@ -46,6 +55,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shipping_address = ShippingAddressSerializer(read_only=True)
+    coupon = AppliedCouponSerializer(read_only=True)
 
     class Meta:
         model = Order
@@ -60,6 +70,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "shipping_charge",
             "tax_amount",
             "total_amount",
+            "coupon",
             "promo_code",
             "shipping_address",
             "stripe_checkout_session_id",

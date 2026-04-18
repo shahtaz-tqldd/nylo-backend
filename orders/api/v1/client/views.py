@@ -9,13 +9,14 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
 from app.base.pagination import CustomPagination
 from app.utils.response import APIResponse
+from coupons.services import allocate_discount_by_unit, apply_coupon_code
 from orders.api.v1.client.serializers import CheckoutSessionCreateSerializer, OrderSerializer
 from orders.models import Order, OrderItem, OrderStatusChoice, PaymentStatusChoice, StripeWebhookEvent
 from products.models import ProductVariant, UserCartItem
@@ -163,6 +164,8 @@ class CheckoutAPIView(GenericAPIView):
 
                 line_items = []
                 subtotal = Decimal("0.00")
+                discount_amount = Decimal("0.00")
+                applied_coupon = None
 
                 order = Order.objects.create(
                     customer=request.user,
@@ -174,6 +177,7 @@ class CheckoutAPIView(GenericAPIView):
                 )
 
                 order_items = []
+                coupon_line_sources = []
                 for cart_item in cart_items:
                     variant = locked_variants[cart_item.variant_id]
                     product = variant.product
@@ -214,23 +218,40 @@ class CheckoutAPIView(GenericAPIView):
                     if variant_description:
                         product_data["description"] = variant_description
 
+                    coupon_line_sources.append(
+                        {
+                            "quantity": cart_item.quantity,
+                            "unit_price": unit_price,
+                            "product_data": product_data,
+                        }
+                    )
+
+                if promo_code:
+                    applied_coupon = apply_coupon_code(code=promo_code, subtotal=subtotal)
+                    discount_amount = applied_coupon.discount_amount
+
+                discounted_units = allocate_discount_by_unit(coupon_line_sources, discount_amount)
+                for unit in discounted_units:
+                    adjusted_unit_price = quantize_amount(unit["base_price"] - unit["discount_share"])
                     line_items.append(
                         {
                             "price_data": {
                                 "currency": settings.STRIPE_CURRENCY.lower(),
-                                "unit_amount": amount_to_cents(unit_price),
-                                "product_data": product_data,
+                                "unit_amount": amount_to_cents(adjusted_unit_price),
+                                "product_data": unit["product_data"],
                             },
-                            "quantity": cart_item.quantity,
+                            "quantity": 1,
                         }
                     )
 
                 OrderItem.objects.bulk_create(order_items)
                 order.subtotal = quantize_amount(subtotal)
-                order.discount_amount = Decimal("0.00")
+                order.discount_amount = quantize_amount(discount_amount)
                 order.shipping_charge = Decimal("0.00")
                 order.tax_amount = Decimal("0.00")
-                order.total_amount = quantize_amount(subtotal)
+                order.total_amount = quantize_amount(subtotal - discount_amount)
+                order.coupon = applied_coupon.coupon if applied_coupon else None
+                order.promo_code = applied_coupon.coupon.code if applied_coupon else promo_code
                 order.save(
                     update_fields=[
                         "subtotal",
@@ -238,6 +259,8 @@ class CheckoutAPIView(GenericAPIView):
                         "shipping_charge",
                         "tax_amount",
                         "total_amount",
+                        "coupon",
+                        "promo_code",
                         "updated_at",
                     ]
                 )
@@ -252,7 +275,7 @@ class CheckoutAPIView(GenericAPIView):
                 metadata={
                     "order_id": str(order.id),
                     "user_id": str(request.user.id),
-                    "promo_code": promo_code or "",
+                    "promo_code": (applied_coupon.coupon.code if applied_coupon else promo_code or ""),
                     **get_shipping_metadata(shipping_address),
                 },
                 payment_intent_data={
@@ -265,6 +288,12 @@ class CheckoutAPIView(GenericAPIView):
             )
         except RuntimeError as exc:
             return APIResponse.error(message=str(exc), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except serializers.ValidationError as exc:
+            return APIResponse.error(
+                message="Coupon validation failed.",
+                errors=exc.detail,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             if "order" in locals():
                 order.payment_status = PaymentStatusChoice.FAILED
@@ -303,6 +332,7 @@ class UserOrderAPIView(GenericAPIView):
     def get_queryset(self):
         return (
             Order.objects.filter(customer=self.request.user)
+            .select_related("coupon")
             .prefetch_related(
                 Prefetch(
                     "items",
@@ -389,6 +419,7 @@ class StripeWebhookAPIView(APIView):
 
         order = (
             Order.objects.select_for_update()
+            .select_related("coupon")
             .prefetch_related("items__variant")
             .filter(id=order_id)
             .first()
@@ -414,6 +445,9 @@ class StripeWebhookAPIView(APIView):
         cart_item_ids = [item.source_cart_item_id for item in order.items.all() if item.source_cart_item_id]
         if cart_item_ids:
             UserCartItem.objects.filter(user=order.customer, id__in=cart_item_ids).delete()
+        if order.coupon_id:
+            order.coupon.used_count += 1
+            order.coupon.save(update_fields=["used_count", "updated_at"])
         order.status = OrderStatusChoice.APPROVED
         order.payment_status = PaymentStatusChoice.PAID
         order.stripe_payment_intent_id = session.get("payment_intent") or order.stripe_payment_intent_id

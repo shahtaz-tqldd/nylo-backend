@@ -3,6 +3,13 @@ from rest_framework import serializers
 from orders.models import Order, OrderItem
 
 
+class AdminOrderCouponSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    code = serializers.CharField(read_only=True)
+    coupon_type = serializers.CharField(read_only=True)
+    value = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+
 class AdminOrderCustomerSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     email = serializers.EmailField(read_only=True)
@@ -67,6 +74,7 @@ class AdminOrderItemSnapshotSerializer(serializers.ModelSerializer):
 
 class AdminOrderListSerializer(serializers.ModelSerializer):
     customer = AdminOrderCustomerSerializer(read_only=True)
+    coupon = AdminOrderCouponSerializer(read_only=True)
     items_count = serializers.IntegerField(read_only=True)
     items_snapshot = AdminOrderItemSnapshotSerializer(source="items", many=True, read_only=True)
 
@@ -84,6 +92,7 @@ class AdminOrderListSerializer(serializers.ModelSerializer):
             "shipping_charge",
             "tax_amount",
             "total_amount",
+            "coupon",
             "promo_code",
             "stripe_checkout_session_id",
             "stripe_payment_intent_id",
@@ -98,6 +107,7 @@ class AdminOrderListSerializer(serializers.ModelSerializer):
 
 class AdminOrderDetailSerializer(serializers.ModelSerializer):
     customer = AdminOrderCustomerSerializer(read_only=True)
+    coupon = AdminOrderCouponSerializer(read_only=True)
     items = AdminOrderItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -114,6 +124,7 @@ class AdminOrderDetailSerializer(serializers.ModelSerializer):
             "shipping_charge",
             "tax_amount",
             "total_amount",
+            "coupon",
             "promo_code",
             "shipping_address",
             "stripe_checkout_session_id",

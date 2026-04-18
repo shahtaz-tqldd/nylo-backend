@@ -194,6 +194,16 @@ class FAQSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
+class AdminSalesOverviewSerializer(serializers.Serializer):
+    date_from = serializers.DateField(allow_null=True)
+    date_to = serializers.DateField(allow_null=True)
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_taxes = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_discounts = serializers.DecimalField(max_digits=12, decimal_places=2)
+    shipping_fees = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_profit = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
 class AdminSalesSummarySerializer(serializers.Serializer):
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
     revenue_this_month = serializers.DecimalField(max_digits=12, decimal_places=2)
@@ -204,6 +214,7 @@ class AdminSalesSummarySerializer(serializers.Serializer):
     average_order_value = serializers.DecimalField(max_digits=12, decimal_places=2)
     previous_month_average_order_value = serializers.DecimalField(max_digits=12, decimal_places=2)
     average_order_value_growth_percentage = serializers.DecimalField(max_digits=8, decimal_places=2)
+    sales_overview = AdminSalesOverviewSerializer()
 
 
 class AdminSalesOverTimePointSerializer(serializers.Serializer):
@@ -218,7 +229,7 @@ class AdminSalesOverTimeSerializer(serializers.Serializer):
     points = AdminSalesOverTimePointSerializer(many=True)
 
 
-class AdminSalesByCollectionItemSerializer(serializers.Serializer):
+class AdminSalesByChannelItemSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     title = serializers.CharField()
     slug = serializers.CharField()
@@ -227,7 +238,40 @@ class AdminSalesByCollectionItemSerializer(serializers.Serializer):
     items_sold = serializers.IntegerField()
 
 
-class AdminSalesByCollectionSerializer(serializers.Serializer):
+class AdminSalesByChannelSerializer(serializers.Serializer):
     date_from = serializers.DateField(allow_null=True)
     date_to = serializers.DateField(allow_null=True)
-    collections = AdminSalesByCollectionItemSerializer(many=True)
+    collections = AdminSalesByChannelItemSerializer(many=True)
+    brands = AdminSalesByChannelItemSerializer(many=True)
+    categories = AdminSalesByChannelItemSerializer(many=True)
+
+
+class AdminTopSellingVariantSerializer(serializers.Serializer):
+    id = serializers.UUIDField(allow_null=True)
+    title = serializers.CharField(allow_blank=True)
+    image_url = serializers.URLField(allow_null=True, allow_blank=True)
+    total_sales = serializers.DecimalField(max_digits=12, decimal_places=2)
+    orders_placed = serializers.IntegerField()
+
+
+class AdminTopSellingProductSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    image_url = serializers.URLField(allow_null=True, allow_blank=True)
+    total_sales = serializers.DecimalField(max_digits=12, decimal_places=2)
+    orders_placed = serializers.IntegerField()
+    top_selling_variant = AdminTopSellingVariantSerializer()
+
+
+class AdminTopCustomerSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    email = serializers.EmailField()
+    total_purchased = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+class AdminTopPerformersSerializer(serializers.Serializer):
+    date_from = serializers.DateField(allow_null=True)
+    date_to = serializers.DateField(allow_null=True)
+    top_products = AdminTopSellingProductSerializer(many=True)
+    top_customers = AdminTopCustomerSerializer(many=True)

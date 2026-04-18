@@ -12,5 +12,6 @@ urlpatterns = [
     path("faqs/delete/<uuid:id>/", views.FAQDeleteAPIView.as_view(), name="faq-delete"),
     path("sales-summary/", views.AdminSalesSummaryAPIView.as_view(), name="analytics-summary"),
     path("sales-over-time/", views.AdminSalesOverTimeAPIView.as_view(), name="analytics-sales-over-time"),
-    path("sales-by-collection/", views.AdminSalesByCollectionAPIView.as_view(), name="analytics-sales-by-collection"),
+    path("sales-by-channel/", views.AdminSalesByChannelAPIView.as_view(), name="analytics-sales-by-channel"),
+    path("top-performers/", views.AdminTopPerformersAPIView.as_view(), name="analytics-top-performers"),
 ]

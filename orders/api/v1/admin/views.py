@@ -28,7 +28,7 @@ class OrderAdminQuerysetMixin:
 
     def get_base_queryset(self):
         return (
-            Order.objects.select_related("customer")
+            Order.objects.select_related("customer", "coupon")
             .prefetch_related(
                 Prefetch(
                     "items",
@@ -133,7 +133,7 @@ class AdminOrderDetailsAPIView(OrderAdminQuerysetMixin, AdminOrderResponseMixin,
 
 
 class AdminOrderUpdateAPIView(AdminOrderResponseMixin, generics.UpdateAPIView):
-    queryset = Order.objects.select_related("customer").prefetch_related(
+    queryset = Order.objects.select_related("customer", "coupon").prefetch_related(
         Prefetch(
             "items",
             queryset=OrderItem.objects.select_related(

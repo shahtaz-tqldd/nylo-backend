@@ -22,7 +22,7 @@ MODULER_APPS = [
     "products",
     "orders",
     "shop",
-    # "coupons",
+    "coupons.apps.CouponsConfig",
     # "campaigns"
 ]
 
