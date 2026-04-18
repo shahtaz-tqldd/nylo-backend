@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.utils.cloudinary import delete_image, upload_image
 from products.models import (
+    Brand,
     Category,
     Collection,
     CollectionItem,
@@ -17,6 +18,12 @@ from products.models import (
     SignatureProductItem,
     Size,
 )
+
+
+class BrandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Brand
+        fields = ("id", "name", "slug")
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -120,6 +127,7 @@ class OfferProductActionSerializer(FeaturedProductActionSerializer):
 
 class FeaturedAdminProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    brand = BrandSerializer(read_only=True)
 
     class Meta:
         model = Product
@@ -157,6 +165,7 @@ class OfferProductItemSerializer(serializers.ModelSerializer):
 
 
 class ProductSettingsSerializer(serializers.Serializer):
+    brands = BrandSerializer(many=True)
     categories = CategorySerializer(many=True)
     sizes = SizeSerializer(many=True)
     colors = ColorSerializer(many=True)
@@ -212,6 +221,7 @@ class ProductCollectionItemSerializer(serializers.ModelSerializer):
 
 
 class ProductListSerializer(serializers.ModelSerializer):
+    brand = BrandSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
     collections = serializers.SerializerMethodField()
     total_stock = serializers.SerializerMethodField()
@@ -267,6 +277,7 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 
 class PublicProductListSerializer(serializers.ModelSerializer):
+    brand = BrandSerializer(read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True)
     in_stock = serializers.SerializerMethodField()
     variants_count = serializers.SerializerMethodField()
@@ -332,7 +343,8 @@ class ProductDetailSerializer(ProductListSerializer):
 class ProductDetailsInputSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=256)
     sku = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
-    brand = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
+    brand_id = serializers.UUIDField(required=False, allow_null=True)
+    brand = serializers.UUIDField(required=False, allow_null=True)
     category_id = serializers.UUIDField(required=False)
     category = serializers.UUIDField(required=False)
     collection_ids = serializers.ListField(
@@ -364,6 +376,9 @@ class ProductDetailsInputSerializer(serializers.Serializer):
     image = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
+        brand_id = attrs.get("brand_id", attrs.get("brand"))
+        attrs["brand_id"] = brand_id
+
         category_id = attrs.get("category_id") or attrs.get("category")
         if not category_id:
             raise serializers.ValidationError({"category_id": "This field is required."})
@@ -420,6 +435,15 @@ class ProductUpsertSerializer(serializers.Serializer):
     def validate(self, attrs):
         product_details = attrs.get("product_details")
         if product_details:
+            brand_id = product_details.get("brand_id")
+            if brand_id:
+                brand = Brand.objects.filter(id=brand_id).first()
+                if not brand:
+                    raise serializers.ValidationError(
+                        {"product_details": {"brand_id": "Selected brand does not exist."}}
+                    )
+                product_details["brand_obj"] = brand
+
             category = Category.objects.filter(id=product_details["category_id"]).first()
             if not category:
                 raise serializers.ValidationError(
@@ -479,7 +503,7 @@ class ProductUpsertSerializer(serializers.Serializer):
         product = Product.objects.create(
             title=product_details["title"],
             description=product_details.get("description"),
-            brand=product_details.get("brand"),
+            brand=product_details.get("brand_obj"),
             image_url=None,
             category=product_details["category_obj"],
             gender=product_details["gender"],
@@ -513,7 +537,8 @@ class ProductUpsertSerializer(serializers.Serializer):
 
         instance.title = product_details.get("title", instance.title)
         instance.description = product_details.get("description", instance.description)
-        instance.brand = product_details.get("brand", instance.brand)
+        if "brand_id" in product_details:
+            instance.brand = product_details.get("brand_obj")
         if product_details:
             instance.image_url = self._upload_product_image(instance, product_details, instance.image_url)
         instance.category = product_details.get("category_obj", instance.category)

@@ -9,6 +9,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from app.base.pagination import CustomPagination
 from app.utils.response import APIResponse
 from products.models import (
+    Brand,
     Category,
     Collection,
     CollectionItem,
@@ -16,6 +17,7 @@ from products.models import (
     GenderChoice,
     OfferProductItem,
     Product,
+    ProductVariant,
     SignatureProductItem,
     Size,
     UserCartItem,
@@ -64,10 +66,14 @@ class ProductQuerysetMixin:
     pagination_class = CustomPagination
 
     def get_base_queryset(self):
-        return (
-            Product.objects.select_related("category")
+        queryset = (
+            Product.objects.select_related("category", "brand")
             .prefetch_related(
-                Prefetch("variants", to_attr="prefetched_variants"),
+                Prefetch(
+                    "variants",
+                    queryset=ProductVariant.objects.select_related("size", "color"),
+                    to_attr="prefetched_variants",
+                ),
                 Prefetch(
                     "collectionitem_set",
                     queryset=CollectionItem.objects.select_related("collection"),
@@ -77,6 +83,17 @@ class ProductQuerysetMixin:
             .filter(is_active=True)
         )
 
+        if self.request.user.is_authenticated:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "cart_items",
+                    queryset=UserCartItem.objects.filter(user=self.request.user),
+                    to_attr="prefetched_user_cart_items",
+                )
+            )
+
+        return queryset
+
     def apply_filters(self, queryset):
         params = self.request.query_params
 
@@ -85,9 +102,13 @@ class ProductQuerysetMixin:
             queryset = queryset.filter(
                 Q(title__icontains=text)
                 | Q(description__icontains=text)
-                | Q(brand__icontains=text)
+                | Q(brand__name__icontains=text)
                 | Q(sku__icontains=text)
             )
+
+        brand_id = params.get("brand_id")
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
 
         category_id = params.get("category_id")
         if category_id:
@@ -179,6 +200,7 @@ class ProductSettingsAPIView(generics.GenericAPIView):
 
     def get(self, request, *args, **kwargs):
         data = {
+            "brands": Brand.objects.all().order_by("name"),
             "categories": Category.objects.all().order_by("name"),
             "sizes": Size.objects.all().order_by("order", "name"),
             "colors": Color.objects.all().order_by("name"),
@@ -194,20 +216,20 @@ class FeaturedProductsAPIView(generics.GenericAPIView):
 
     def get(self, request, *args, **kwargs):
         signature_items = list(
-            SignatureProductItem.objects.select_related("product__category")
+            SignatureProductItem.objects.select_related("product__category", "product__brand")
             .prefetch_related(Prefetch("product__variants", to_attr="prefetched_variants"))
             .filter(product__is_active=True)
         )
 
         offer_items = list(
-            OfferProductItem.objects.select_related("product__category")
+            OfferProductItem.objects.select_related("product__category", "product__brand")
             .prefetch_related(Prefetch("product__variants", to_attr="prefetched_variants"))
             .filter(product__is_active=True)
             .filter(Q(offer_ends_at__isnull=True) | Q(offer_ends_at__gte=timezone.now()))
         )
 
         best_selling_products = list(
-            Product.objects.select_related("category")
+            Product.objects.select_related("category", "brand")
             .prefetch_related(Prefetch("variants", to_attr="prefetched_variants"))
             .filter(is_active=True)
             .annotate(total_sold=Coalesce(Sum("order_items__quantity"), 0))

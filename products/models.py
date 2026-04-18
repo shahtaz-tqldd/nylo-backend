@@ -33,6 +33,18 @@ class Collection(BaseModel):
     def __str__(self):
         return self.title
 
+class Brand(BaseModel):
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(unique=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
 class Category(BaseModel):
     name = models.CharField(max_length=50)
     slug = models.SlugField(unique=True, blank=True)
@@ -70,7 +82,7 @@ class Color(BaseModel):
 class Product(BaseModel):
     title = models.CharField(max_length=256)
     description = models.TextField(null=True, blank=True)
-    brand = models.CharField(max_length=100, null=True, blank=True)
+    brand = models.ForeignKey(Brand, null=True, blank=True, on_delete=models.SET_NULL, related_name="products")
     image_url = models.URLField(null=True, blank=True)
 
     category = models.ForeignKey(Category, on_delete=models.CASCADE)

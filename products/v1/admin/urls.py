@@ -2,6 +2,12 @@ from django.urls import include, path
 
 from products.v1.admin import views
 
+brand_urls = [
+    path("create/", views.BrandCreateAPIView.as_view(), name="brand-create"),
+    path("update/<uuid:id>/", views.BrandUpdateAPIView.as_view(), name="brand-update"),
+    path("delete/<uuid:id>/", views.BrandDeleteAPIView.as_view(), name="brand-delete"),
+]
+
 category_urls = [
     path("create/", views.CategoryCreateAPIView.as_view(), name="category-create"),
     path("update/<uuid:id>/", views.CategoryUpdateAPIView.as_view(), name="category-update"),
@@ -47,6 +53,7 @@ offer_product_urls = [
 ]
 
 urlpatterns = [
+    path("brand/", include((brand_urls, "brand_admin"))),
     path("category/", include((category_urls, "category_admin"))),
     path("size/", include((size_urls, "size_admin"))),
     path("color/", include((color_urls, "color_admin"))),

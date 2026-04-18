@@ -192,3 +192,42 @@ class FAQSerializer(serializers.ModelSerializer):
         model = FAQ
         fields = ("id", "question", "answer", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
+
+
+class AdminSalesSummarySerializer(serializers.Serializer):
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    revenue_this_month = serializers.DecimalField(max_digits=12, decimal_places=2)
+    previous_month_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    revenue_growth_percentage = serializers.DecimalField(max_digits=8, decimal_places=2)
+    total_orders = serializers.IntegerField()
+    orders_placed_this_month = serializers.IntegerField()
+    average_order_value = serializers.DecimalField(max_digits=12, decimal_places=2)
+    previous_month_average_order_value = serializers.DecimalField(max_digits=12, decimal_places=2)
+    average_order_value_growth_percentage = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+
+class AdminSalesOverTimePointSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    sales = serializers.DecimalField(max_digits=12, decimal_places=2)
+    orders = serializers.IntegerField()
+
+
+class AdminSalesOverTimeSerializer(serializers.Serializer):
+    date_from = serializers.DateField()
+    date_to = serializers.DateField()
+    points = AdminSalesOverTimePointSerializer(many=True)
+
+
+class AdminSalesByCollectionItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    title = serializers.CharField()
+    slug = serializers.CharField()
+    total_sales = serializers.DecimalField(max_digits=12, decimal_places=2)
+    orders = serializers.IntegerField()
+    items_sold = serializers.IntegerField()
+
+
+class AdminSalesByCollectionSerializer(serializers.Serializer):
+    date_from = serializers.DateField(allow_null=True)
+    date_to = serializers.DateField(allow_null=True)
+    collections = AdminSalesByCollectionItemSerializer(many=True)

@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Brand,
     Category,
     Collection,
     CollectionItem,
@@ -37,6 +38,13 @@ class CategoryAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
 
 
+@admin.register(Brand)
+class BrandAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "created_at")
+    search_fields = ("name", "slug")
+    prepopulated_fields = {"slug": ("name",)}
+
+
 @admin.register(Size)
 class SizeAdmin(admin.ModelAdmin):
     list_display = ("name", "order", "created_at")
@@ -54,6 +62,7 @@ class ColorAdmin(admin.ModelAdmin):
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
         "title",
+        "brand",
         "category",
         "gender",
         "price",
@@ -61,8 +70,8 @@ class ProductAdmin(admin.ModelAdmin):
         "slug",
         "created_at",
     )
-    list_filter = ("is_active", "gender", "category", "created_at")
-    search_fields = ("title", "brand", "sku", "slug")
+    list_filter = ("is_active", "gender", "brand", "category", "created_at")
+    search_fields = ("title", "brand__name", "sku", "slug")
     prepopulated_fields = {"slug": ("title",)}
     inlines = [ProductVariantInline, CollectionItemInline]
 

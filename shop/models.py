@@ -104,4 +104,3 @@ class FAQ(BaseModel):
 
     def __str__(self):
         return self.question
-

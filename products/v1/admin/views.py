@@ -10,6 +10,7 @@ from app.utils.cloudinary import delete_image
 from app.utils.response import APIResponse
 from auth.permissions import IsAdmin
 from products.models import (
+    Brand,
     Category,
     Collection,
     CollectionItem,
@@ -21,6 +22,7 @@ from products.models import (
     Size,
 )
 from products.v1.admin.serializers import (
+    BrandSerializer,
     CategorySerializer,
     CollectionSerializer,
     ColorSerializer,
@@ -143,6 +145,24 @@ class CategoryDeleteAPIView(AdminDeleteAPIView):
     success_delete_message = "Category deleted successfully."
 
 
+class BrandCreateAPIView(AdminCreateAPIView):
+    queryset = Brand.objects.all()
+    serializer_class = BrandSerializer
+    success_create_message = "Brand created successfully."
+
+
+class BrandUpdateAPIView(AdminUpdateAPIView):
+    queryset = Brand.objects.all()
+    serializer_class = BrandSerializer
+    success_update_message = "Brand updated successfully."
+
+
+class BrandDeleteAPIView(AdminDeleteAPIView):
+    queryset = Brand.objects.all()
+    serializer_class = BrandSerializer
+    success_delete_message = "Brand deleted successfully."
+
+
 class SizeCreateAPIView(AdminCreateAPIView):
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
@@ -229,7 +249,7 @@ class ProductQuerysetMixin:
 
     def get_base_queryset(self):
         return (
-            Product.objects.select_related("category")
+            Product.objects.select_related("category", "brand")
             .annotate(
                 orders_count=Count("order_items__order", distinct=True),
                 is_signature_item=Exists(
@@ -259,9 +279,13 @@ class ProductQuerysetMixin:
             queryset = queryset.filter(
                 Q(title__icontains=text)
                 | Q(description__icontains=text)
-                | Q(brand__icontains=text)
+                | Q(brand__name__icontains=text)
                 | Q(sku__icontains=text)
             )
+
+        brand_id = params.get("brand_id")
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
 
         category_id = params.get("category_id")
         if category_id:
@@ -363,6 +387,7 @@ class ProductSettingsAPIView(generics.GenericAPIView):
 
     def get(self, request, *args, **kwargs):
         data = {
+            "brands": Brand.objects.all().order_by("name"),
             "categories": Category.objects.all().order_by("name"),
             "sizes": Size.objects.all().order_by("order", "name"),
             "colors": Color.objects.all().order_by("name"),
