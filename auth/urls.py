@@ -6,6 +6,7 @@ from auth.views.admin import (
 #   UserDetailsForAdminView
 )
 from auth.views.client import (
+    ChangePasswordView,
     CreateNewUserView,
     # ForgetPasswordView,
     LoginView,
@@ -22,6 +23,7 @@ client_urls = [
     path("refresh/", RefreshTokenView.as_view(), name="refresh-token"),
     path("me/", UserDetailsView.as_view(), name="user-details"),
     path("me/update/", UserDetailsUpdateView.as_view(), name="update-user"),
+    path("change-password/", ChangePasswordView.as_view(), name="change-password"),
     # path("forget-password/", ForgetPasswordView.as_view(), name="forget-password"),
     # path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
 ]

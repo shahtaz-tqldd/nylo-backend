@@ -119,7 +119,7 @@ class CheckoutAPIView(GenericAPIView):
 
         success_url = serializer.validated_data.get("success_url") or settings.STRIPE_CHECKOUT_SUCCESS_URL
         cancel_url = serializer.validated_data.get("cancel_url") or settings.STRIPE_CHECKOUT_CANCEL_URL
-        promo_code = serializer.validated_data.get("promo_code") or None
+        coupon_code = serializer.validated_data.get("coupon_code") or None
         shipping_address = normalize_shipping_address(serializer.validated_data["shipping_address"])
 
         if not success_url or not cancel_url:
@@ -172,7 +172,7 @@ class CheckoutAPIView(GenericAPIView):
                     status=OrderStatusChoice.PENDING,
                     payment_status=PaymentStatusChoice.UNPAID,
                     currency=settings.STRIPE_CURRENCY.lower(),
-                    promo_code=promo_code,
+                    coupon_code=coupon_code,
                     shipping_address=shipping_address,
                 )
 
@@ -226,8 +226,8 @@ class CheckoutAPIView(GenericAPIView):
                         }
                     )
 
-                if promo_code:
-                    applied_coupon = apply_coupon_code(code=promo_code, subtotal=subtotal)
+                if coupon_code:
+                    applied_coupon = apply_coupon_code(code=coupon_code, subtotal=subtotal)
                     discount_amount = applied_coupon.discount_amount
 
                 discounted_units = allocate_discount_by_unit(coupon_line_sources, discount_amount)
@@ -251,7 +251,7 @@ class CheckoutAPIView(GenericAPIView):
                 order.tax_amount = Decimal("0.00")
                 order.total_amount = quantize_amount(subtotal - discount_amount)
                 order.coupon = applied_coupon.coupon if applied_coupon else None
-                order.promo_code = applied_coupon.coupon.code if applied_coupon else promo_code
+                order.coupon_code = applied_coupon.coupon.code if applied_coupon else coupon_code
                 order.save(
                     update_fields=[
                         "subtotal",
@@ -260,7 +260,7 @@ class CheckoutAPIView(GenericAPIView):
                         "tax_amount",
                         "total_amount",
                         "coupon",
-                        "promo_code",
+                        "coupon_code",
                         "updated_at",
                     ]
                 )
@@ -275,7 +275,7 @@ class CheckoutAPIView(GenericAPIView):
                 metadata={
                     "order_id": str(order.id),
                     "user_id": str(request.user.id),
-                    "promo_code": (applied_coupon.coupon.code if applied_coupon else promo_code or ""),
+                    "coupon_code": (applied_coupon.coupon.code if applied_coupon else coupon_code or ""),
                     **get_shipping_metadata(shipping_address),
                 },
                 payment_intent_data={
@@ -419,7 +419,6 @@ class StripeWebhookAPIView(APIView):
 
         order = (
             Order.objects.select_for_update()
-            .select_related("coupon")
             .prefetch_related("items__variant")
             .filter(id=order_id)
             .first()

@@ -1,14 +1,17 @@
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, GenericAPIView
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from app.utils.response import APIResponse
 from auth.serializers import (
+    ChangePasswordSerializer,
     LoginSerializer, 
     RegisterSerializer, 
-    UserSerializer
+    UserSerializer,
+    UserUpdateSerializer,
 )
 
 
@@ -51,15 +54,25 @@ class UserDetailsView(APIView):
 
 class UserDetailsUpdateView(GenericAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = UserSerializer
+    serializer_class = UserUpdateSerializer
+    parser_classes = [MultiPartParser, FormParser]
 
     def patch(self, request, *args, **kwargs):
         serializer = self.get_serializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        user = serializer.save()
         return APIResponse.success(
-            data=serializer.data,
+            data=UserSerializer(user).data,
             message="User updated successfully.",
         )
-    
 
+
+class ChangePasswordView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
+
+    def patch(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return APIResponse.success(message="Password changed successfully.")

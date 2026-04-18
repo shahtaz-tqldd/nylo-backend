@@ -25,11 +25,16 @@ class ShippingAddressSerializer(serializers.Serializer):
     country = serializers.CharField(max_length=50)
 
 
+class CheckoutAppliedCouponInputSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False)
+    code = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+
 class CheckoutSessionCreateSerializer(serializers.Serializer):
     shipping_address = ShippingAddressSerializer()
     success_url = serializers.URLField(required=False, allow_blank=True)
     cancel_url = serializers.URLField(required=False, allow_blank=True)
-    promo_code = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=100)
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -71,7 +76,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "tax_amount",
             "total_amount",
             "coupon",
-            "promo_code",
+            "coupon_code",
             "shipping_address",
             "stripe_checkout_session_id",
             "stripe_payment_intent_id",

@@ -70,7 +70,7 @@ class Order(models.Model):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
-    promo_code = models.CharField(max_length=100, null=True, blank=True)
+    coupon_code = models.CharField(max_length=100, null=True, blank=True)
     shipping_address = models.JSONField(default=dict, blank=True)
     stripe_checkout_session_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
     stripe_payment_intent_id = models.CharField(max_length=255, null=True, blank=True)
