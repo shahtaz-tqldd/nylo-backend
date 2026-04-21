@@ -2,13 +2,10 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from auth.models import (
-    Action,
+    AdminInvitation,
     AdminPermission,
     AdminProfile,
-    AdminRoleAssignment,
-    PermissionRole,
-    Resource,
-    RolePermission,
+    Permission,
     User,
 )
 
@@ -52,9 +49,6 @@ class UserAdmin(BaseUserAdmin):
 
 
 admin.site.register(AdminProfile)
-admin.site.register(Resource)
-admin.site.register(Action)
+admin.site.register(AdminInvitation)
+admin.site.register(Permission)
 admin.site.register(AdminPermission)
-admin.site.register(PermissionRole)
-admin.site.register(RolePermission)
-admin.site.register(AdminRoleAssignment)

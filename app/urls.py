@@ -5,7 +5,7 @@ from django.conf import settings
 from orders.api.v1.client.views import StripeWebhookAPIView
 
 v1_client_urls = [
-    path("auth/", include("auth.urls")),
+    path("auth/", include("auth.api.v1.client.urls")),
     path("products/", include("products.v1.client.urls")),
     path("orders/", include("orders.api.v1.client.urls")),
     path("coupons/", include("coupons.api.v1.client.urls")),
@@ -13,6 +13,7 @@ v1_client_urls = [
 ]
 
 v1_admin_urls = [
+    path("auth/", include(("auth.api.v1.admin.urls"))),
     path("products/", include("products.v1.admin.urls")),
     path("orders/", include("orders.api.v1.admin.urls")),
     path("coupons/", include("coupons.api.v1.admin.urls")),

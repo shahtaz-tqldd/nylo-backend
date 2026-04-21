@@ -1,8 +1,5 @@
 # workflow to compelte
-1. role based authentication
-    - customer login
-    - admin user
-    - permission based authorization
-2. messages
-3. email functionality
-4. agent
+1. messages
+2. email functionality
+3. agent
+

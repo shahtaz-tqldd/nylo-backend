@@ -1,9 +1,12 @@
 import uuid
 
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.core import signing
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -24,21 +27,20 @@ class UserStatus(models.TextChoices):
     BLOCKED = "BLOCKED", _("Blocked")
 
 
-class ResourceName(models.TextChoices):
-    PRODUCTS = "PRODUCTS", _("Products")
-    CUSTOMERS = "CUSTOMERS", _("Customers")
-    ORDERS = "ORDERS", _("Orders")
-    MESSAGES = "MESSAGES", _("Messages")
-    COUPONS = "COUPONS", _("Coupons")
+class AdminModule(models.TextChoices):
+    PRODUCT_MANAGEMENT = "PRODUCT_MANAGEMENT", _("Product Management")
+    CUSTOMER_MANAGEMENT = "CUSTOMER_MANAGEMENT", _("Customer Management")
+    ORDER_MANAGEMENT = "ORDER_MANAGEMENT", _("Order Management")
+    COUPON_MANAGEMENT = "COUPON_MANAGEMENT", _("Coupon Management")
     SALES = "SALES", _("Sales")
+    CHAT_SUPPORT = "CHAT_SUPPORT", _("Chat Support")
 
 
-class ActionName(models.TextChoices):
+class AdminAction(models.TextChoices):
     VIEW = "VIEW", _("View")
     CREATE = "CREATE", _("Create")
     UPDATE = "UPDATE", _("Update")
     DELETE = "DELETE", _("Delete")
-    EXPORT = "EXPORT", _("Export")
 
 
 class UserManager(BaseUserManager):
@@ -151,18 +153,17 @@ class User(AbstractBaseUser, PermissionsMixin):
         if self.role != UserRole.ADMIN:
             return False
 
-        return AdminPermission.objects.filter(
+        admin_permission = AdminPermission.objects.filter(
             admin_profile__user=self,
-            resource__name=resource,
-            action__name=action,
-        ).exists()
+            permission__module=resource,
+        ).values_list("actions", flat=True).first()
+        return action in (admin_permission or [])
 
 
 class AdminProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="admin_profile")
     job_title = models.CharField(max_length=100, blank=True, verbose_name=_("Job Title"))
-    department = models.CharField(max_length=100, blank=True, verbose_name=_("Department"))
     assigned_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -183,40 +184,92 @@ class AdminProfile(models.Model):
         return f"{self.user.email} - {self.job_title or 'Admin'}"
 
 
-class Resource(models.Model):
+class InvitationStatus(models.TextChoices):
+    PENDING = "PENDING", _("Pending")
+    ACCEPTED = "ACCEPTED", _("Accepted")
+    REVOKED = "REVOKED", _("Revoked")
+    EXPIRED = "EXPIRED", _("Expired")
+
+
+class AdminInvitation(models.Model):
+    TOKEN_SALT = "admin-invitation"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(
+    email = models.EmailField(verbose_name=_("Email Address"))
+    job_title = models.CharField(max_length=100, blank=True, verbose_name=_("Job Title"))
+    direct_permissions = models.JSONField(default=list, blank=True, verbose_name=_("Direct Permissions"))
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_invitations_sent",
+        verbose_name=_("Invited By"),
+    )
+    expires_at = models.DateTimeField(verbose_name=_("Expires At"))
+    accepted_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Accepted At"))
+    revoked_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Revoked At"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
+
+    class Meta:
+        verbose_name = _("Admin Invitation")
+        verbose_name_plural = _("Admin Invitations")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["email", "expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email} - {self.status}"
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def status(self):
+        if self.accepted_at:
+            return InvitationStatus.ACCEPTED
+        if self.revoked_at:
+            return InvitationStatus.REVOKED
+        if self.is_expired:
+            return InvitationStatus.EXPIRED
+        return InvitationStatus.PENDING
+
+    @property
+    def invitee_name(self):
+        return self.email
+
+    def issue_token(self):
+        payload = {
+            "invitation_id": str(self.id),
+            "email": self.email,
+            "expires_at": self.expires_at.isoformat(),
+        }
+        return signing.dumps(payload, salt=self.TOKEN_SALT)
+
+    @classmethod
+    def decode_token(cls, token):
+        return signing.loads(token, salt=cls.TOKEN_SALT)
+
+
+class Permission(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    module = models.CharField(
         max_length=50,
-        choices=ResourceName.choices,
+        choices=AdminModule.choices,
         unique=True,
-        verbose_name=_("Resource Name"),
+        verbose_name=_("Module"),
     )
     description = models.TextField(blank=True, verbose_name=_("Description"))
 
     class Meta:
-        verbose_name = _("Resource")
-        verbose_name_plural = _("Resources")
+        verbose_name = _("Permission")
+        verbose_name_plural = _("Permissions")
 
     def __str__(self):
-        return self.get_name_display()
-
-
-class Action(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(
-        max_length=50,
-        choices=ActionName.choices,
-        unique=True,
-        verbose_name=_("Action Name"),
-    )
-    description = models.TextField(blank=True, verbose_name=_("Description"))
-
-    class Meta:
-        verbose_name = _("Action")
-        verbose_name_plural = _("Actions")
-
-    def __str__(self):
-        return self.get_name_display()
+        return self.get_module_display()
 
 
 class AdminPermission(models.Model):
@@ -226,16 +279,13 @@ class AdminPermission(models.Model):
         on_delete=models.CASCADE,
         related_name="permissions",
     )
-    resource = models.ForeignKey(
-        Resource,
+    permission = models.ForeignKey(
+        Permission,
         on_delete=models.CASCADE,
-        verbose_name=_("Resource"),
+        related_name="admin_permissions",
+        verbose_name=_("Permission"),
     )
-    action = models.ForeignKey(
-        Action,
-        on_delete=models.CASCADE,
-        verbose_name=_("Action"),
-    )
+    actions = models.JSONField(default=list, blank=True, verbose_name=_("Allowed Actions"))
     granted_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -250,83 +300,13 @@ class AdminPermission(models.Model):
         verbose_name_plural = _("Admin Permissions")
         constraints = [
             models.UniqueConstraint(
-                fields=["admin_profile", "resource", "action"],
+                fields=["admin_profile", "permission"],
                 name="unique_admin_permission",
             )
         ]
         indexes = [
-            models.Index(fields=["admin_profile", "resource", "action"]),
+            models.Index(fields=["admin_profile", "permission"]),
         ]
 
     def __str__(self):
-        return f"{self.admin_profile.user.email} - {self.resource.name}:{self.action.name}"
-
-
-class PermissionRole(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100, unique=True, verbose_name=_("Role Name"))
-    description = models.TextField(blank=True, verbose_name=_("Role Description"))
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = _("Permission Role")
-        verbose_name_plural = _("Permission Roles")
-
-    def __str__(self):
-        return self.name
-
-
-class RolePermission(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    role = models.ForeignKey(
-        PermissionRole,
-        on_delete=models.CASCADE,
-        related_name="role_permissions",
-    )
-    resource = models.ForeignKey(Resource, on_delete=models.CASCADE)
-    action = models.ForeignKey(Action, on_delete=models.CASCADE)
-
-    class Meta:
-        verbose_name = _("Role Permission")
-        verbose_name_plural = _("Role Permissions")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["role", "resource", "action"],
-                name="unique_role_permission",
-            )
-        ]
-
-    def __str__(self):
-        return f"{self.role.name} - {self.resource.name}:{self.action.name}"
-
-
-class AdminRoleAssignment(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    admin_profile = models.ForeignKey(
-        AdminProfile,
-        on_delete=models.CASCADE,
-        related_name="role_assignments",
-    )
-    role = models.ForeignKey(PermissionRole, on_delete=models.CASCADE)
-    assigned_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="role_assignments_made",
-    )
-    assigned_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = _("Admin Role Assignment")
-        verbose_name_plural = _("Admin Role Assignments")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["admin_profile", "role"],
-                name="unique_admin_role_assignment",
-            )
-        ]
-
-    def __str__(self):
-        return f"{self.admin_profile.user.email} - {self.role.name}"
+        return f"{self.admin_profile.user.email} - {self.permission.module}:{','.join(self.actions)}"

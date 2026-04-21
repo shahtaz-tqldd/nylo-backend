@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate, get_user_model
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers
@@ -7,12 +8,23 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from uuid import uuid4
 
 from app.utils.cloudinary import delete_image, upload_image
+from auth.models import (
+    AdminAction,
+    AdminModule,
+    AdminInvitation,
+    UserRole,
+    UserStatus,
+)
+from auth.services import assign_admin_access, resolve_admin_invitation
 
 
 User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    job_title = serializers.CharField(source="admin_profile.job_title", read_only=True)
+    permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -23,6 +35,8 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "role",
             "status",
+            "job_title",
+            "permissions",
             "address_line_1",
             "address_line_2",
             "city",
@@ -34,6 +48,33 @@ class UserSerializer(serializers.ModelSerializer):
             "date_joined",
         )
         read_only_fields = ("id", "role", "status", "is_active", "date_joined")
+
+    def get_permissions(self, obj):
+        if not obj.is_admin_user:
+            return []
+
+        if obj.is_superuser:
+            return [
+                {
+                    "module": module,
+                    "actions": [action for action, _ in AdminAction.choices],
+                }
+                for module, _ in AdminModule.choices
+            ]
+
+        admin_profile = getattr(obj, "admin_profile", None)
+        if not admin_profile:
+            return []
+
+        permissions = []
+        for admin_permission in admin_profile.permissions.select_related("permission").all():
+            permissions.append(
+                {
+                    "module": admin_permission.permission.module,
+                    "actions": admin_permission.actions,
+                }
+            )
+        return permissions
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -84,27 +125,6 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     def _build_profile_picture_public_id(self, user):
         base_name = slugify(user.full_name or user.email or "user-profile")
         return base_name or f"user-profile-{uuid4().hex[:8]}"
-
-
-class CustomerListSerializer(serializers.ModelSerializer):
-    full_name = serializers.CharField(read_only=True)
-    region = serializers.CharField(read_only=True)
-    last_active_at = serializers.DateTimeField(source="last_login", read_only=True)
-
-    class Meta:
-        model = User
-        fields = (
-            "id",
-            "email",
-            "full_name",
-            "region",
-            "phone",
-            "status",
-            "last_active_at",
-            "is_active",
-            "date_joined",
-        )
-        read_only_fields = fields
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -187,3 +207,81 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password"])
         return user
+
+
+class PermissionAssignmentSerializer(serializers.Serializer):
+    module = serializers.ChoiceField(choices=AdminModule.choices)
+    actions = serializers.ListField(child=serializers.ChoiceField(choices=AdminAction.choices))
+
+
+class AdminInvitationVerifySerializer(serializers.ModelSerializer):
+    permissions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminInvitation
+        fields = (
+            "email",
+            "job_title",
+            "permissions",
+            "expires_at",
+        )
+        read_only_fields = fields
+
+    def get_permissions(self, obj):
+        return obj.direct_permissions
+
+
+class AdminInvitationRegistrationSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    first_name = serializers.CharField(max_length=32)
+    last_name = serializers.CharField(max_length=32)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=17)
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+
+        try:
+            invitation = resolve_admin_invitation(attrs["token"])
+        except Exception as exc:
+            raise serializers.ValidationError({"token": [str(exc)]}) from exc
+
+        if User.objects.filter(email__iexact=invitation.email).exists():
+            raise serializers.ValidationError({"email": "A user with this email already exists."})
+
+        attrs["invitation"] = invitation
+        return attrs
+
+    @transaction.atomic
+    def save(self, **kwargs):
+        invitation = self.validated_data["invitation"]
+        user = User.objects.create_user(
+            email=invitation.email,
+            password=self.validated_data["password"],
+            first_name=self.validated_data["first_name"],
+            last_name=self.validated_data["last_name"],
+            phone=self.validated_data.get("phone", ""),
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            is_staff=True,
+            is_active=True,
+        )
+
+        assign_admin_access(
+            user=user,
+            permissions=invitation.direct_permissions,
+            assigned_by=invitation.invited_by,
+            job_title=invitation.job_title,
+        )
+
+        invitation.accepted_at = timezone.now()
+        invitation.save(update_fields=["accepted_at", "updated_at"])
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "user": user,
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        }

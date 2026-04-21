@@ -194,6 +194,22 @@ class FAQSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
+class AdminOverviewMetricSerializer(serializers.Serializer):
+    total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    growth_percentage = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+
+class AdminOverviewCountMetricSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    growth_percentage = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+
+class AdminOverviewSerializer(serializers.Serializer):
+    revenue = AdminOverviewMetricSerializer()
+    orders = AdminOverviewCountMetricSerializer()
+    customers = AdminOverviewCountMetricSerializer()
+
+
 class AdminSalesOverviewSerializer(serializers.Serializer):
     date_from = serializers.DateField(allow_null=True)
     date_to = serializers.DateField(allow_null=True)

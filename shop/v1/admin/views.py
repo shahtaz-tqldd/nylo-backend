@@ -10,6 +10,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
 from app.utils.response import APIResponse
+from auth.models import UserRole
 from auth.permissions import IsAdmin
 from orders.models import Order, OrderStatusChoice, PaymentStatusChoice
 from orders.api.v1.client.views import get_variant_description
@@ -17,6 +18,7 @@ from products.models import Brand, Category, Collection, Product, ProductVariant
 from shop.models import AboutPageContent, FAQ, LegalPageContent, StoreConfiguration
 from shop.services import ensure_singleton_defaults
 from shop.v1.admin.serializers import (
+    AdminOverviewSerializer,
     AdminSalesByChannelSerializer,
     AdminSalesOverTimeSerializer,
     AdminSalesSummarySerializer,
@@ -215,6 +217,72 @@ class AdminAnalyticsMixin:
         if date_to:
             queryset = queryset.filter(**{f"{field_name}__lte": self._date_end(date_to)})
         return queryset
+
+
+class AdminOverviewAPIView(AdminAnalyticsMixin, generics.GenericAPIView):
+    serializer_class = AdminOverviewSerializer
+
+    def get(self, request, *args, **kwargs):
+        today = timezone.localdate()
+        current_month_start, previous_month_start, previous_month_end = self._month_bounds(today)
+
+        paid_orders = self.get_paid_order_queryset()
+        all_orders = self.get_order_queryset()
+        customers = User.objects.filter(role=UserRole.CUSTOMER)
+
+        current_month_revenue = self._decimal_or_zero(
+            paid_orders.filter(
+                created_at__gte=self._date_start(current_month_start),
+                created_at__lte=self._date_end(today),
+            ).aggregate(total=Sum("total_amount"))["total"]
+        )
+        previous_month_revenue = self._decimal_or_zero(
+            paid_orders.filter(
+                created_at__gte=self._date_start(previous_month_start),
+                created_at__lte=self._date_end(previous_month_end),
+            ).aggregate(total=Sum("total_amount"))["total"]
+        )
+
+        current_month_orders = all_orders.filter(
+            created_at__gte=self._date_start(current_month_start),
+            created_at__lte=self._date_end(today),
+        ).count()
+        previous_month_orders = all_orders.filter(
+            created_at__gte=self._date_start(previous_month_start),
+            created_at__lte=self._date_end(previous_month_end),
+        ).count()
+
+        current_month_customers = customers.filter(
+            created_at__gte=self._date_start(current_month_start),
+            created_at__lte=self._date_end(today),
+        ).count()
+        previous_month_customers = customers.filter(
+            created_at__gte=self._date_start(previous_month_start),
+            created_at__lte=self._date_end(previous_month_end),
+        ).count()
+
+        payload = {
+            "revenue": {
+                "total": self._decimal_or_zero(paid_orders.aggregate(total=Sum("total_amount"))["total"]),
+                "growth_percentage": self._growth_percentage(current_month_revenue, previous_month_revenue),
+            },
+            "orders": {
+                "total": all_orders.count(),
+                "growth_percentage": self._growth_percentage(Decimal(current_month_orders), Decimal(previous_month_orders)),
+            },
+            "customers": {
+                "total": customers.count(),
+                "growth_percentage": self._growth_percentage(
+                    Decimal(current_month_customers),
+                    Decimal(previous_month_customers),
+                ),
+            },
+        }
+
+        return APIResponse.success(
+            data=self.get_serializer(payload).data,
+            message="Overview fetched successfully.",
+        )
 
 
 class AdminSalesSummaryAPIView(AdminAnalyticsMixin, generics.GenericAPIView):

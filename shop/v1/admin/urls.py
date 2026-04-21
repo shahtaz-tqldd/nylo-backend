@@ -4,6 +4,7 @@ from shop.v1.admin import views
 
 
 urlpatterns = [
+    path("overview/", views.AdminOverviewAPIView.as_view(), name="analytics-overview"),
     path("store-configuration/", views.StoreConfigurationAPIView.as_view(), name="store-configuration"),
     path("legal-content/", views.LegalPageContentAPIView.as_view(), name="legal-content"),
     path("about-page/", views.AboutPageContentAPIView.as_view(), name="about-page"),
